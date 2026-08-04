@@ -1,0 +1,118 @@
+schema: spec-driven
+
+context: |
+  # ESP32-S3 Sonos Controller
+
+  A standalone physical Sonos room controller. The device is bound to one
+  configurable "home room" and gives hands-on control over playback, volume,
+  multi-room grouping, and Sonos Favorites — no phone app, no cloud account.
+
+  ## Scope boundaries (do not propose these)
+  - NO Home Assistant dependency. Control is direct UPnP/SOAP over the LAN.
+  - NO Sonos cloud/OAuth API.
+  - NO recently-played history — it is not exposed over UPnP; Favorites only.
+  - NO TV / line-in source switching.
+  - NO lyrics (explicitly deferred past v1).
+
+  ## Hardware
+  Primary board — Elecrow CrowPanel 2.1" ESP32-S3 rotary display:
+  - ESP32-S3R8: 8 MB PSRAM, 16 MB Flash
+  - 480x480 ROUND IPS panel, ST7701S controller, RGB parallel interface
+  - CST816 capacitive touch, I2C 0x15 (SDA=GPIO38, SCL=GPIO39)
+  - Rotary encoder A=GPIO42, B=GPIO4 (press-button GPIO still unconfirmed)
+  - Backlight GPIO6
+  - The panel is physically CIRCULAR. The four corners of the 480x480
+    framebuffer are not visible. Treat this as a hard requirement, not a
+    styling preference.
+
+  Second board — `ref_rect_stub`, a rectangular 800x480 reference profile that
+  exists solely to prove the display abstraction holds. May be untested on real
+  hardware, but must always compile.
+
+  ## Toolchain
+  - PlatformIO + Arduino framework, C++17
+  - LVGL 9.x
+  - One firmware image per board, selected by PlatformIO env
+  - Build: `pio run -e crowpanel_21_round` / `pio run -e ref_rect_stub`
+  - Serial: `pio device monitor`
+
+  ## Architecture rules
+  - The hardware abstraction is COMPILE-TIME. `constexpr DisplayProfile` plus
+    free-function BSP contract. No virtual IPanel/ITouch/IEncoder classes, no
+    runtime board registry, no auto-detection. This exists to keep zero
+    abstraction cost in the LVGL flush path.
+  - One board = one directory = one translation unit, selected via
+    `build_src_filter` and an include path. `#ifdef BOARD_X` must never appear
+    in UI code.
+  - Screen code must NEVER hardcode pixel values or reference board names. It
+    positions content only through named layout slots.
+  - Layout slots define CONTAINERS, never widgets. Layout is computed once at
+    screen build, never per frame.
+  - ALL `lv_*` calls happen on the UI task (core 1). Never call LVGL from
+    another task.
+  - No blocking network calls on the UI task. Sonos, album art, and weather I/O
+    live on core 0 and hand results back over a queue.
+  - Album art JPEG decode and dominant-color extraction never run on the UI
+    task. Colour extraction operates on a 64x64 downsample.
+  - Encoder ISR stays trivial: increment a delta counter, nothing more.
+
+  ## Sonos protocol notes
+  - Discovery: SSDP multicast 239.255.255.250:1900, search target
+    `urn:schemas-upnp-org:device:ZonePlayer:1`
+  - Control: SOAP HTTP POST to each speaker's control URL
+    - `AVTransport` — play, pause, next, previous, seek, SetAVTransportURI
+    - `RenderingControl` — volume get/set, mute get/set
+    - `ContentDirectory` — browse Favorites via the `FV:2` container
+  - State polling: `GetTransportInfo` + `GetPositionInfo` every 2s
+  - Track position is interpolated on-device on a 1s UI timer and resynced on
+    each poll — never poll faster to smooth the progress bar.
+  - Home room is stored as a speaker UUID and re-resolved against the discovered
+    speaker list after every discovery cycle.
+
+  ## Config and secrets
+  Persisted in NVS via the Arduino `Preferences` library: WiFi SSID/password,
+  home room UUID, weather latitude/longitude, OTA password. Never commit
+  credentials. Provisioning happens through a first-boot captive portal.
+
+  ## Verification
+  - Performance gate: >=55 fps sustained, measured with the debug-flag FPS/heap
+    overlay. 60 is the aspiration; 55 is the pass line. The real ceiling is
+    PSRAM/LCD-DMA memory bandwidth, not code structure.
+  - `/screenshot` endpoint (lv_snapshot -> BMP) is the primary visual debug
+    loop: `curl http://<ip>/screenshot -o s.bmp`. Attach output to UI changes.
+  - A host-side mock SOAP responder replays canned Sonos XML so playback logic
+    is testable without real speakers.
+  - Round safe area is enforced three ways: a compile-time `static_assert` over
+    all slots (a bad slot must FAIL THE BUILD), runtime circular clipping, and a
+    CI lint rejecting numeric literals in positioning calls under
+    `src/ui/screens/`.
+
+  ## Definition of done for any change
+  1. Both PlatformIO envs build.
+  2. `openspec validate --all --strict` is clean.
+  3. UI changes include a `/screenshot` capture.
+  4. A CHANGELOG.md entry exists under `## [Unreleased]` if the change is
+     user-visible.
+
+rules:
+  proposal:
+    - State scope boundaries explicitly when a feature could plausibly be built
+      via Home Assistant or the Sonos cloud API — it must not be.
+  specs:
+    - Requirements must be observable device behavior, not implementation detail.
+      Name the UPnP service or hardware contract only when it is genuinely part
+      of the requirement.
+    - Any requirement that places content on screen must state its safe-area
+      obligation for round displays.
+  tasks:
+    - "Include a final verification group covering all of: both PlatformIO envs
+      build, `openspec validate --all --strict` is clean, and the relevant
+      hardware check passes."
+    - "Include a task adding a CHANGELOG.md entry under `## [Unreleased]` for
+      user-visible changes."
+
+operations:
+  archive:
+    guidance:
+      - Confirm the CHANGELOG.md entry exists before archiving a user-visible
+        change.

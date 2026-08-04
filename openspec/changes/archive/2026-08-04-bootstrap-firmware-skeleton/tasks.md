@@ -40,7 +40,7 @@
 - [x] 5.5 Implement `safe_area.h`: the `constexpr` disc-containment predicate, the fold over the slot table, and the `static_assert` whose diagnostic names the offending slot
 - [x] 5.6 Select the archetype from the active profile's shape and aspect
 - [x] 5.7 Implement `layout_container()` applying position, size, and clipping once at build time
-- [ ] 5.8 Make the root object a clipped circle on round profiles
+- [x] 5.8 Make the root object a clipped circle on round profiles
 
 ## 6. Theme and type
 

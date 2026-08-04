@@ -13,7 +13,9 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
-- Nothing yet. The first change, `bootstrap-firmware-skeleton`, is proposed but
-  not yet implemented.
+- Firmware project scaffolding: PlatformIO + Arduino framework + LVGL 9.x for two board
+  environments (`crowpanel_21_round` and `ref_rect_stub`), with a board-abstraction layer that
+  ensures screen code never references hardware directly and a CI pipeline that enforces this.
+  ([bootstrap-firmware-skeleton](openspec/changes/bootstrap-firmware-skeleton/proposal.md))
 
 [Unreleased]: https://github.com/brian-kaiser/esp32-sonos-controller/compare/HEAD

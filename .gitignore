@@ -1,0 +1,22 @@
+# PlatformIO
+.pio/
+.pioenv*/
+
+# Build artifacts
+*.elf
+*.bin
+*.map
+*.hex
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.orig
+.DS_Store
+
+# Secrets — never committed
+secrets.h
+credentials.h
+*.env

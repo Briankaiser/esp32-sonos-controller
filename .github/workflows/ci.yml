@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    name: Build firmware (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [crowpanel_21_round, ref_rect_stub]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build ${{ matrix.env }}
+        run: pio run -e ${{ matrix.env }}
+
+  spec:
+    name: OpenSpec validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install OpenSpec
+        run: npm i -g @fission-ai/openspec@latest
+
+      - name: Validate specs and changes
+        run: openspec validate --all --strict
+
+  lint:
+    name: Screen pixel-literal lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject raw numeric literals in screen positioning calls
+        # Catches direct pixel values passed to LVGL positioning/sizing functions
+        # in src/ui/screens/. Proportional values via layout_container() are fine.
+        # Uses Python to handle nested parentheses in arguments correctly.
+        run: |
+          set -e
+          python3 - << 'PYEOF'
+          import re, sys, pathlib
+
+          # Pattern: lv_obj_set_{pos,size,...} anywhere on the line, then a comma
+          # followed by whitespace and a positive integer literal (not 0)
+          pattern = re.compile(
+              r'lv_obj_set_(pos|size|width|height|x|y)\b[^;]*,\s*[1-9][0-9]*'
+          )
+          screens = pathlib.Path("src/ui/screens")
+          violations = []
+          for f in sorted(screens.rglob("*.cpp")) + sorted(screens.rglob("*.h")):
+              for i, line in enumerate(f.read_text().splitlines(), 1):
+                  if pattern.search(line) and "deliberate" not in line:
+                      violations.append(f"{f}:{i}: {line.strip()}")
+
+          if violations:
+              print("ERROR: Numeric pixel literals found in screen positioning calls:")
+              print("\n".join(violations))
+              print("\nUse layout_container(parent, SLOT_X) instead of hardcoded coordinates.")
+              sys.exit(1)
+          print(f"Lint passed — no raw pixel literals in src/ui/screens/ ({len(list(screens.rglob('*.cpp')))} files checked)")
+          PYEOF

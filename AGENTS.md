@@ -90,17 +90,28 @@ Layer 1 proves a property about rectangles only. Do not treat it as sufficient.
 ```bash
 pio run -e crowpanel_21_round      # primary board
 pio run -e ref_rect_stub           # rectangular reference; must always compile
+pio test -e test_native            # host unit tests — no hardware needed
 pio device monitor
 openspec validate --all --strict
 ```
+
+Device tests (requires CrowPanel connected via USB):
+
+```bash
+pio test -e test_device
+```
+
+The **touch test** requires a physical finger tap within 5 seconds of the test
+starting; it is automatically skipped and marked IGNORED if no touch is detected.
 
 Debug loop:
 
 - `curl http://<device-ip>/screenshot -o s.bmp` — framebuffer capture. This is the
   primary way to inspect interface state. Attach a capture to interface changes.
 - Frame-rate and free-memory overlay, enabled by a build flag.
-- Host-side mock SOAP responder replays canned Sonos XML, so playback logic is
-  testable without real speakers.
+- `python3 scripts/mock_sonos.py` — mock SOAP server. Replays canned Sonos XML so
+  playback logic is testable without real speakers. Query `GET /log` to assert on
+  the command sequence; `POST /reset` to clear between tests.
 
 Performance gate: **at least 55 fps sustained.** 60 is the aspiration. The binding
 constraint is PSRAM and LCD DMA bandwidth, not code structure — do not attempt to

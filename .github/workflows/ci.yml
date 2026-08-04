@@ -45,6 +45,24 @@ jobs:
       - name: Validate specs and changes
         run: openspec validate --all --strict
 
+  test-native:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-native-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Run host unit tests
+        run: pio test -e test_native
+
   lint:
     name: Screen pixel-literal lint
     runs-on: ubuntu-latest

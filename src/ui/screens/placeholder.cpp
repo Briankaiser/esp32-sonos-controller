@@ -72,6 +72,7 @@ lv_obj_t* placeholder_create() {
         lv_obj_set_style_arc_width(arc, 6, LV_PART_MAIN);
         lv_obj_set_style_arc_width(arc, 6, LV_PART_INDICATOR);
         lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
     } else {
         // No encoder — show a slider instead
         lv_obj_t* slider = lv_slider_create(vol_cont);

@@ -183,6 +183,12 @@ static void lvgl_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     Wire.endTransmission(false);
     Wire.requestFrom(pins::TOUCH_ADDR, 5);
     if (Wire.available() < 5) {
+        static bool s_warned = false;
+        if (!s_warned) {
+            Serial.printf("[Touch] I2C read failed (addr=0x%02X, avail=%d)\n",
+                          pins::TOUCH_ADDR, Wire.available());
+            s_warned = true;
+        }
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
@@ -198,6 +204,8 @@ static void lvgl_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     data->state   = LV_INDEV_STATE_PRESSED;
     data->point.x = static_cast<int32_t>(((xh & 0x0F) << 8) | xl);
     data->point.y = static_cast<int32_t>(((yh & 0x0F) << 8) | yl);
+    Serial.printf("[Touch] x=%d y=%d (raw yh=0x%02X yl=0x%02X xh=0x%02X xl=0x%02X)\n",
+                  (int)data->point.x, (int)data->point.y, yh, yl, xh, xl);
 }
 
 // ── Encoder ISR (GPIO CHANGE on pin A) ──────────────────────────────────────
@@ -309,16 +317,21 @@ bool bsp::pop_event(InputEvent& evt) {
         evt = {InputEvent{bsp::Intent::VolumeDelta, static_cast<int16_t>(delta)}};
         return true;
     }
-    // Encoder button (polled via PCF8574, active-low)
+    // Encoder button (polled via PCF8574, active-low) — emits Down on falling edge,
+    // Up on rising edge so the UI task can implement the 30-second factory-reset hold.
     if constexpr (kDisplay.has_encoder) {
-        static bool s_btn_last = true;
-        bool pressed = (s_pcf.read(pins::PCF_ENC_BTN) == LOW);
-        if (pressed && s_btn_last) {
-            s_btn_last = false;
-            evt = {bsp::Intent::MuteToggle, 0};
+        static bool s_btn_pressed = false;
+        bool cur = (s_pcf.read(pins::PCF_ENC_BTN) == LOW);
+        if (cur && !s_btn_pressed) {
+            s_btn_pressed = true;
+            evt = {bsp::Intent::EncoderButtonDown, 0};
             return true;
         }
-        if (!pressed) s_btn_last = true;
+        if (!cur && s_btn_pressed) {
+            s_btn_pressed = false;
+            evt = {bsp::Intent::EncoderButtonUp, 0};
+            return true;
+        }
     }
     return xQueueReceive(s_evt_queue, &evt, 0) == pdTRUE;
 }

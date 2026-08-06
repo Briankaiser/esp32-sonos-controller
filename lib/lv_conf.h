@@ -18,11 +18,28 @@
 
 /* ── Memory ─────────────────────────────────────────────────────────────────── */
 
-/* Internal heap for LVGL objects (lv_obj_t, styles, timers).
- * Keep in internal SRAM for speed; 128 KB is sufficient for ~200 objects.
- * Draw buffers are allocated separately via heap_caps_malloc(MALLOC_CAP_SPIRAM). */
+/* Route the LVGL pool to PSRAM on Xtensa/ESP32 targets.
+ *
+ * clip_corner + LV_RADIUS_CIRCLE causes LVGL to create temporary ARGB8888 layer
+ * buffers (~92 KB at 480×48) for corner compositing. These don't fit alongside
+ * widget objects in a 128 KB static SRAM pool, causing a constant stream of
+ * "No memory" warnings and a black display.
+ *
+ * LV_MEM_POOL_ALLOC redirects the entire LVGL TLSF heap to PSRAM (8 MB available).
+ * Increase the pool to 256 KB since cost is now paid by PSRAM, not SRAM.
+ * On non-Xtensa hosts (test_native) the static array path is used unchanged.
+ */
+#ifdef __XTENSA__
+#  include <esp_heap_caps.h>
+#  define LV_MEM_POOL_ALLOC(size) \
+       heap_caps_malloc((size), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+#endif
+
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE   (128 * 1024U)
+/* Pool is backed by PSRAM (see LV_MEM_POOL_ALLOC above), so 2 MB is cheap.
+ * lv_snapshot_take_to_draw_buf() allocates two 480×240 ARGB8888 layer buffers
+ * (~460 KB each) from this pool during rendering, which exceeds the old 256 KB cap. */
+#define LV_MEM_SIZE   (2 * 1024 * 1024U)
 
 /* ── Tick ───────────────────────────────────────────────────────────────────── */
 
@@ -39,6 +56,21 @@
 #define LV_USE_STDLIB_MALLOC    LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_STRING    LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_SPRINTF   LV_STDLIB_BUILTIN
+
+/* Disable the built-in Material-style default theme.
+ *
+ * lv_display_create() auto-initialises lv_theme_default when LV_USE_THEME_DEFAULT=1.
+ * That theme adds card-style shadows, light-grey backgrounds, and borders to every
+ * lv_obj container.  Our containers override bg_opa and border_width but NOT
+ * shadow_width, so the theme's shadow renders as a floating dark halo around every
+ * transparent slot rectangle — visible on the dark (#1A1A1A) root screen.
+ *
+ * All widgets are styled explicitly in our screen code, so the default theme adds
+ * no value and actively interferes.  Disabling it cuts binary size and removes the
+ * visual artefacts.
+ */
+#define LV_USE_THEME_DEFAULT    0
+#define LV_USE_SNAPSHOT         1
 
 /* ── Widgets ────────────────────────────────────────────────────────────────── */
 

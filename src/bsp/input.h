@@ -12,10 +12,11 @@ namespace bsp {
  */
 enum class Intent : uint8_t {
     None,
-    VolumeDelta,     ///< Encoder rotated; value = signed delta (positive = up)
-    MuteToggle,      ///< Encoder button pressed
-    TouchBegin,      ///< Finger down (internal routing use)
-    TouchEnd,        ///< Finger up   (internal routing use)
+    VolumeDelta,        ///< Encoder rotated; value = signed delta (positive = up)
+    EncoderButtonDown,  ///< Encoder button pressed (falling edge)
+    EncoderButtonUp,    ///< Encoder button released (rising edge)
+    TouchBegin,         ///< Finger down (internal routing use)
+    TouchEnd,           ///< Finger up   (internal routing use)
 };
 
 struct InputEvent {

@@ -7,12 +7,15 @@
 #include "bsp/input.h"
 #include "ui/layout/layout.h"
 #include "ui/screens/placeholder.h"
+#include "ui/screens/now_playing.h"
 #include "services/prefs.h"
 #include "services/portal.h"
 #include "services/screenshot.h"
 #include "services/ota.h"
+#include "services/rooms.h"
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
+#include "app/sonos/playback.h"
 
 /* ── Task configuration ─────────────────────────────────────────────────────
  *
@@ -37,6 +40,9 @@ static WebServer s_web_server(80);
 
 // Pointer to the active screen (used to guard intent delivery)
 static lv_obj_t* volatile s_active_scr = nullptr;
+
+// Last playback version seen by the UI task; used to detect state changes
+static uint32_t s_playback_version = 0;
 
 // ── Encoder long-press / factory-reset state (UI task only) ─────────────────
 static bool        s_btn_held      = false;
@@ -100,7 +106,20 @@ static void web_task(void* /*arg*/) {
 static void sonos_task(void* /*arg*/) {
     for (;;) {
         sonos::discovery::run_cycle();
-        vTaskDelay(pdMS_TO_TICKS(sonos::discovery::kDiscoveryIntervalMs));
+        SonosState st = sonos::state::snapshot();
+        uint32_t cycle_start_ms = millis();
+        while (millis() - cycle_start_ms < sonos::discovery::kDiscoveryIntervalMs) {
+            if (st.home_room_idx >= 0) {
+                const SpeakerInfo& hr = st.speakers[st.home_room_idx];
+                sonos::playback::drain_commands(hr);
+                sonos::playback::poll(hr);
+            } else {
+                Serial.println("[Playback] no home room — skipping poll");
+            }
+            vTaskDelay(pdMS_TO_TICKS(sonos::playback::kPollIntervalMs));
+            // Re-snapshot so a freshly resolved home room is picked up mid-cycle
+            st = sonos::state::snapshot();
+        }
     }
 }
 
@@ -117,7 +136,7 @@ static void ui_task(void* /*arg*/) {
     bsp::display_init();
     bsp::input_init();
 
-    lv_obj_t* scr = screens::placeholder_create();
+    lv_obj_t* scr = screens::now_playing_create();
     lv_screen_load(scr);
     s_active_scr = scr;
 
@@ -153,6 +172,15 @@ static void ui_task(void* /*arg*/) {
         uint8_t worker_msg[kWorkerQueueItemBytes];
         while (xQueueReceive(s_worker_to_ui, worker_msg, 0) == pdTRUE) {
             // Placeholder: ignore
+        }
+
+        // Update now-playing screen when playback state changes
+        {
+            sonos::PlaybackState pb = sonos::playback::snapshot();
+            if (pb.version != s_playback_version) {
+                s_playback_version = pb.version;
+                screens::now_playing_update(pb);
+            }
         }
 
         // Yield for the remaining time LVGL says it won't need the CPU
@@ -208,6 +236,7 @@ void setup() {
         screenshot::init();
         screenshot::register_handler(s_web_server);
         ota::register_handler(s_web_server);
+        rooms::register_handlers(s_web_server);
         s_web_server.begin();
     }
 
@@ -216,6 +245,7 @@ void setup() {
 
     // Shared Sonos state mutex — must exist before any task that reads state
     sonos::state::init();
+    sonos::playback::init();
 
     // Spawn tasks
     xTaskCreatePinnedToCore(sonos_task, "Sonos", kSonosTaskStackBytes,

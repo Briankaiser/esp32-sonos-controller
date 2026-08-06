@@ -60,6 +60,14 @@ String prefs::lon() {
     return v;
 }
 
+void prefs::set_home_room(const String& uuid) {
+    Preferences p;
+    p.begin(kNs, false);
+    p.putString(kRoom, uuid);
+    p.end();
+    Serial.printf("[Prefs] home_room set to %s\n", uuid.c_str());
+}
+
 String prefs::ota_pass() {
     Preferences p;
     p.begin(kNs, true);

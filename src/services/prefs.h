@@ -11,6 +11,7 @@ bool   is_provisioned();
 String wifi_ssid();
 String wifi_pass();
 String home_room();
+void   set_home_room(const String& uuid);
 String lat();
 String lon();
 String ota_pass();

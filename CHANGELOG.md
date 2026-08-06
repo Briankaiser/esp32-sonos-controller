@@ -13,6 +13,14 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- `GET /rooms` lists discovered Sonos speakers as JSON; `POST /rooms/select` sets the home
+  room by UUID without requiring factory reset, enabling remote room override.
+  ([add-home-room-web-api](openspec/changes/add-home-room-web-api/proposal.md))
+
+- Now-playing screen displays current track title, artist, album, and a live progress bar;
+  play/pause, next, and previous controls let you operate Sonos directly from the device.
+  ([add-now-playing-playback](openspec/changes/add-now-playing-playback/proposal.md))
+
 - Screenshot endpoint (`GET /screenshot`) returns the current display as a BMP image for
   visual review; OTA firmware update (`POST /update`) enables wireless reflashing without USB.
   ([add-web-debug-services](openspec/changes/add-web-debug-services/proposal.md))

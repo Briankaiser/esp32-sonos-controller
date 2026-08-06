@@ -12,6 +12,7 @@ static lv_obj_t*          s_play_btn_lbl   = nullptr;
 static lv_obj_t*          s_progress_bar   = nullptr;
 static lv_obj_t*          s_status_lbl     = nullptr;
 static lv_obj_t*          s_transport_cont = nullptr;
+static lv_obj_t*          s_volume_arc     = nullptr;
 static lv_timer_t*        s_interp_timer   = nullptr;
 static sonos::PlaybackState s_last;
 
@@ -163,17 +164,17 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_t* vol_cont = layout_container(scr, SLOT_VOLUME_ARC);
     lv_obj_remove_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // sits above transport — must not absorb touch
     if constexpr (kDisplay.has_encoder) {
-        lv_obj_t* arc = lv_arc_create(vol_cont);
-        lv_obj_set_size(arc, lv_pct(100), lv_pct(100));
-        lv_arc_set_rotation(arc, 135);
-        lv_arc_set_bg_angles(arc, 0, 270);
-        lv_arc_set_value(arc, 50);
-        lv_obj_set_style_arc_color(arc, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(arc, lv_color_hex(0x333333), LV_PART_MAIN);
-        lv_obj_set_style_arc_width(arc, 6, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(arc, 6, LV_PART_INDICATOR);
-        lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
+        s_volume_arc = lv_arc_create(vol_cont);
+        lv_obj_set_size(s_volume_arc, lv_pct(100), lv_pct(100));
+        lv_arc_set_rotation(s_volume_arc, 135);
+        lv_arc_set_bg_angles(s_volume_arc, 0, 270);
+        lv_arc_set_value(s_volume_arc, 50);
+        lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x333333), LV_PART_MAIN);
+        lv_obj_set_style_arc_width(s_volume_arc, 6, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(s_volume_arc, 6, LV_PART_INDICATOR);
+        lv_obj_remove_flag(s_volume_arc, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(s_volume_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     } else {
         lv_obj_t* slider = lv_slider_create(vol_cont);
         lv_obj_set_size(slider, lv_pct(90), lv_pct(40));
@@ -216,4 +217,11 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
         ? (int32_t)(state.position_s * 100u / state.duration_s)
         : 0;
     lv_bar_set_value(s_progress_bar, pct, LV_ANIM_OFF);
+
+    if (s_volume_arc) {
+        lv_arc_set_value(s_volume_arc, state.volume);
+        lv_obj_set_style_arc_color(s_volume_arc,
+            state.muted ? lv_color_hex(0x555555) : lv_color_hex(0x1DB954),
+            LV_PART_INDICATOR);
+    }
 }

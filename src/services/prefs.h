@@ -5,6 +5,7 @@ namespace prefs {
 
 constexpr uint32_t kResetCountdownStartMs =  5000;
 constexpr uint32_t kResetTotalMs          = 15000;
+constexpr uint32_t kMuteShortPressMs      =  1000;
 
 bool   is_provisioned();
 

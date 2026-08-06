@@ -13,6 +13,10 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Rotary encoder now controls Sonos volume in real time; short-press the encoder
+  to toggle mute. The volume arc reflects the current level and grays out when muted.
+  ([add-encoder-volume-control](openspec/changes/add-encoder-volume-control/proposal.md))
+
 - `GET /rooms` lists discovered Sonos speakers as JSON; `POST /rooms/select` sets the home
   room by UUID without requiring factory reset, enabling remote room override.
   ([add-home-room-web-api](openspec/changes/add-home-room-web-api/proposal.md))

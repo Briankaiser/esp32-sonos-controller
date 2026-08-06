@@ -23,6 +23,8 @@ struct PlaybackState {
     uint32_t       position_s        = 0;
     uint32_t       poll_timestamp_ms = 0;
     uint32_t       version           = 0;
+    uint8_t        volume            = 50;
+    bool           muted             = false;
 };
 
 enum class PlaybackCommand : uint8_t {
@@ -30,6 +32,7 @@ enum class PlaybackCommand : uint8_t {
     Pause,
     Next,
     Previous,
+    ToggleMute,
 };
 
 namespace playback {
@@ -39,8 +42,10 @@ namespace playback {
     void          update(const PlaybackState& next);          // sonos task only
     PlaybackState snapshot();                                  // any task, copies under mutex
     void          enqueue_command(PlaybackCommand cmd);        // UI task, zero-timeout send
+    void          enqueue_volume_delta(int16_t delta);        // UI task, atomic accumulate
     void          drain_commands(const SpeakerInfo& speaker); // sonos task
     void          poll(const SpeakerInfo& speaker);           // sonos task
+    uint32_t      poll_interval_ms();                         // sonos task: 500ms if boost active, else kPollIntervalMs
 }
 
 } // namespace sonos

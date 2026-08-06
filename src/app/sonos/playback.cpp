@@ -2,14 +2,17 @@
 #include "soap.h"
 
 #include <Arduino.h>
+#include <atomic>
 #include <freertos/semphr.h>
 #include <freertos/queue.h>
 
 // ── Statics ──────────────────────────────────────────────────────────────────
 
-static SemaphoreHandle_t  s_mutex     = nullptr;
-static QueueHandle_t      s_cmd_queue = nullptr;
-static sonos::PlaybackState s_state;
+static SemaphoreHandle_t       s_mutex         = nullptr;
+static QueueHandle_t           s_cmd_queue     = nullptr;
+static sonos::PlaybackState    s_state;
+static std::atomic<int16_t>    s_pending_delta{0};
+static std::atomic<uint8_t>    s_boost_polls{0};     // remaining fast-poll cycles after an action
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -95,6 +98,19 @@ void sonos::playback::enqueue_command(PlaybackCommand cmd) {
     }
 }
 
+void sonos::playback::enqueue_volume_delta(int16_t delta) {
+    s_pending_delta.fetch_add(delta, std::memory_order_relaxed);
+}
+
+uint32_t sonos::playback::poll_interval_ms() {
+    uint8_t remaining = s_boost_polls.load(std::memory_order_relaxed);
+    if (remaining > 0) {
+        s_boost_polls.fetch_sub(1, std::memory_order_relaxed);
+        return 500;
+    }
+    return kPollIntervalMs;
+}
+
 // ── drain_commands (task 3.1) ─────────────────────────────────────────────────
 
 void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
@@ -128,6 +144,25 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
                 action = "Previous";
                 args   = "<InstanceID>0</InstanceID>";
                 break;
+            case PlaybackCommand::ToggleMute: {
+                name = "ToggleMute";
+                bool cur_muted = snapshot().muted;
+                Serial.printf("[Playback] command ToggleMute (currently %s)\n",
+                              cur_muted ? "muted" : "unmuted");
+                String mute_args =
+                    String("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>") +
+                    (cur_muted ? "0" : "1") + "</DesiredMute>";
+                String mute_resp = sonos::soap::call(
+                    speaker.ip, speaker.port,
+                    "/MediaRenderer/RenderingControl/Control",
+                    "urn:schemas-upnp-org:service:RenderingControl:1",
+                    "SetMute", mute_args);
+                if (mute_resp.isEmpty()) {
+                    Serial.println("[Playback] command ToggleMute failed");
+                }
+                s_boost_polls.store(4, std::memory_order_relaxed);
+                continue;  // action/args already handled above
+            }
         }
 
         Serial.printf("[Playback] command %s\n", name);
@@ -135,6 +170,29 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
         if (resp.isEmpty()) {
             Serial.printf("[Playback] command %s failed\n", name);
         }
+        s_boost_polls.store(4, std::memory_order_relaxed);
+    }
+
+    // Flush accumulated encoder volume delta as a single SetVolume call
+    int16_t delta = s_pending_delta.exchange(0, std::memory_order_relaxed);
+    if (delta != 0) {
+        PlaybackState cur = snapshot();
+        int new_vol = (int)cur.volume + delta;
+        if (new_vol < 0)   new_vol = 0;
+        if (new_vol > 100) new_vol = 100;
+        Serial.printf("[Playback] SetVolume %d\n", new_vol);
+        String vol_args =
+            String("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>") +
+            new_vol + "</DesiredVolume>";
+        String vol_resp = sonos::soap::call(
+            speaker.ip, speaker.port,
+            "/MediaRenderer/RenderingControl/Control",
+            "urn:schemas-upnp-org:service:RenderingControl:1",
+            "SetVolume", vol_args);
+        if (vol_resp.isEmpty()) {
+            Serial.printf("[Playback] SetVolume %d failed\n", new_vol);
+        }
+        s_boost_polls.store(4, std::memory_order_relaxed);
     }
 }
 
@@ -179,6 +237,30 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     String artist = extract_xml_text(didl, "dc:creator");
     String album  = extract_xml_text(didl, "upnp:album");
 
+    // GetVolume + GetMute via RenderingControl
+    static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
+    static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
+    static const char* kRCArgs = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+
+    PlaybackState prev = snapshot();
+    uint8_t volume = prev.volume;
+    bool    muted  = prev.muted;
+
+    String vol_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetVolume", kRCArgs);
+    if (vol_resp.isEmpty()) {
+        Serial.println("[Playback] GetVolume failed");
+    } else {
+        int v = extract_xml_text(vol_resp, "CurrentVolume").toInt();
+        volume = (uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v);
+    }
+
+    String mute_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetMute", kRCArgs);
+    if (mute_resp.isEmpty()) {
+        Serial.println("[Playback] GetMute failed");
+    } else {
+        muted = (extract_xml_text(mute_resp, "CurrentMute") == "1");
+    }
+
     PlaybackState next;
     next.transport_state   = ts;
     next.title             = title;
@@ -188,7 +270,9 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     next.duration_s        = duration_s;
     next.position_s        = position_s;
     next.poll_timestamp_ms = millis();
-    next.version           = snapshot().version;
+    next.volume            = volume;
+    next.muted             = muted;
+    next.version           = prev.version;
 
     update(next);
 

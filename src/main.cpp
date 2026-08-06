@@ -116,7 +116,7 @@ static void sonos_task(void* /*arg*/) {
             } else {
                 Serial.println("[Playback] no home room — skipping poll");
             }
-            vTaskDelay(pdMS_TO_TICKS(sonos::playback::kPollIntervalMs));
+            vTaskDelay(pdMS_TO_TICKS(sonos::playback::poll_interval_ms()));
             // Re-snapshot so a freshly resolved home room is picked up mid-cycle
             st = sonos::state::snapshot();
         }
@@ -151,6 +151,9 @@ static void ui_task(void* /*arg*/) {
         bsp::InputEvent evt;
         while (bsp::pop_event(evt)) {
             switch (evt.intent) {
+                case bsp::Intent::VolumeDelta:
+                    sonos::playback::enqueue_volume_delta(-evt.value);  // negate: CW = up
+                    break;
                 case bsp::Intent::EncoderButtonDown:
                     s_btn_held    = true;
                     s_btn_down_ms = millis();
@@ -161,6 +164,9 @@ static void ui_task(void* /*arg*/) {
                     s_btn_held = false;
                     if (s_reset_timer)   { lv_timer_delete(s_reset_timer);    s_reset_timer = nullptr; }
                     if (s_reset_overlay) { lv_obj_delete(s_reset_overlay); s_reset_overlay = nullptr; }
+                    if (millis() - s_btn_down_ms < prefs::kMuteShortPressMs) {
+                        sonos::playback::enqueue_command(sonos::PlaybackCommand::ToggleMute);
+                    }
                     break;
                 default:
                     (void)evt;

@@ -18,13 +18,13 @@ static constexpr uint16_t kW = kDisplay.w;   // 480
 static constexpr uint16_t kH = kDisplay.h;   // 480
 
 inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
-    // SLOT_ALBUM_ART — central square, 56% × 56%, centered
-    // Corner (373,373): dx=133,dy=133, d²=35378 ✓
+    // SLOT_ALBUM_ART — central square, 48% × 48%, centered
+    // Corner (335,335): dx=95,dy=95, d²=18050 ✓
     {
         /*.x=*/ pct(kW, 22),   // 105
         /*.y=*/ pct(kH, 22),   // 105
-        /*.w=*/ pct(kW, 56),   // 268
-        /*.h=*/ pct(kH, 56),   // 268
+        /*.w=*/ pct(kW, 48),   // 230
+        /*.h=*/ pct(kH, 48),   // 230
     },
     // SLOT_TRACK_INFO — text band above art, y≈12%, 11% tall
     // Worst corner (91+297-1=387, 57): dx=147,dy=183, d²=55098 ✓
@@ -34,13 +34,14 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kW, 62),   // 297
         /*.h=*/ pct(kH, 11),   // 52
     },
-    // SLOT_TRANSPORT — control row below art, y≈79%, 9% tall
-    // Worst corner (86+307-1=392, 421): dx=152,dy=181, d²=55865 ✓
+    // SLOT_TRANSPORT — control row below art, y≈72%, 16% tall
+    // Moved up and doubled in height to give usable touch targets.
+    // Worst corner (392, 421): dx=152,dy=181, d²=55865 ✓
     {
         /*.x=*/ pct(kW, 18),   // 86
-        /*.y=*/ pct(kH, 79),   // 379
+        /*.y=*/ pct(kH, 72),   // 345
         /*.w=*/ pct(kW, 64),   // 307
-        /*.h=*/ pct(kH, 9),    // 43
+        /*.h=*/ pct(kH, 16),   // 76
     },
     // SLOT_PROGRESS — thin bar below transport, y≈90%, 3% tall
     // Worst corner (360, 445): dx=120,dy=205, d²=56425 ✓

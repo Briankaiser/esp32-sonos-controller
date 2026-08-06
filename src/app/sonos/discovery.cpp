@@ -80,37 +80,49 @@ static void ssdp_search(std::vector<String>& locations) {
         "\r\n";
 
     IPAddress mcast(239, 255, 255, 250);
-    udp.beginPacket(mcast, 1900);
-    udp.write((const uint8_t*)kMSearch, sizeof(kMSearch) - 1);
-    udp.endPacket();
 
-    uint32_t deadline = millis() + 3500;
+    auto send_msearch = [&]() {
+        udp.beginPacket(mcast, 1900);
+        udp.write((const uint8_t*)kMSearch, sizeof(kMSearch) - 1);
+        udp.endPacket();
+    };
+
+    // Send immediately; resend at 1.5 s and 3 s to catch speakers that miss
+    // the first multicast (multicast delivery is not guaranteed).
+    send_msearch();
+    uint32_t deadline   = millis() + 5000;
+    uint32_t next_send  = millis() + 1500;
+
     while (millis() < deadline) {
-        int sz = udp.parsePacket();
-        if (sz > 0) {
-            char buf[2048] = {};
+        if (millis() >= next_send) {
+            send_msearch();
+            next_send += 1500;
+        }
+
+        // Drain ALL packets that arrived since last iteration — a single
+        // parsePacket() call per loop tick drops concurrent responses.
+        while (udp.parsePacket() > 0) {
+            char buf[1024] = {};
             int n = udp.read(buf, (int)sizeof(buf) - 1);
-            if (n > 0) {
-                String response(buf);
-                // Extract LOCATION header (Sonos uses all-caps; try both)
-                int pos = response.indexOf("LOCATION:");
-                if (pos < 0) pos = response.indexOf("Location:");
-                if (pos >= 0) {
-                    int start = pos + 9;
-                    while (start < (int)response.length() && response[start] == ' ') start++;
-                    int end = response.indexOf('\n', start);
-                    if (end < 0) end = response.length();
-                    String loc = response.substring(start, end);
-                    loc.trim();
-                    if (!loc.isEmpty()) {
-                        bool dup = false;
-                        for (const auto& l : locations) { if (l == loc) { dup = true; break; } }
-                        if (!dup) locations.push_back(loc);
-                    }
+            if (n <= 0) break;
+            String response(buf);
+            int pos = response.indexOf("LOCATION:");
+            if (pos < 0) pos = response.indexOf("Location:");
+            if (pos >= 0) {
+                int start = pos + 9;
+                while (start < (int)response.length() && response[start] == ' ') start++;
+                int end = response.indexOf('\n', start);
+                if (end < 0) end = response.length();
+                String loc = response.substring(start, end);
+                loc.trim();
+                if (!loc.isEmpty()) {
+                    bool dup = false;
+                    for (const auto& l : locations) { if (l == loc) { dup = true; break; } }
+                    if (!dup) locations.push_back(loc);
                 }
             }
         }
-        delay(10);
+        delay(1);
     }
     udp.stop();
 }
@@ -132,22 +144,42 @@ static bool fetch_speaker_info(const String& location, SpeakerInfo& out) {
         Serial.printf("[Sonos] device desc connect failed: %s:%u\n", ip.c_str(), (unsigned)port);
         return false;
     }
-    client.printf("GET %s HTTP/1.0\r\nHOST: %s:%u\r\nConnection: close\r\n\r\n",
+    client.printf("GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n\r\n",
                   path.c_str(), ip.c_str(), (unsigned)port);
 
-    // Consume HTTP status + headers
-    uint32_t deadline = millis() + 5000;
+    // Read status line and headers; detect chunked transfer encoding
+    uint32_t deadline = millis() + 8000;
     while (!client.available() && millis() < deadline) delay(10);
+    client.readStringUntil('\n');  // status line
+
+    bool is_chunked = false;
     while (client.connected() && millis() < deadline) {
         String line = client.readStringUntil('\n');
-        if (line == "\r" || line.length() <= 1) break;
+        line.trim();
+        if (line.isEmpty()) break;  // end of headers
+        if (line.indexOf("chunked") >= 0) is_chunked = true;
     }
 
-    // Read body
+    // Read and decode body
     String xml = "";
-    while ((client.connected() || client.available()) && millis() < deadline) {
-        while (client.available()) xml += (char)client.read();
-        delay(1);
+    if (is_chunked) {
+        while ((client.connected() || client.available()) && millis() < deadline) {
+            String size_line = client.readStringUntil('\n');
+            size_line.trim();
+            if (size_line.isEmpty()) continue;
+            uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
+            if (chunk_size == 0) break;
+            for (uint32_t i = 0; i < chunk_size && millis() < deadline; ) {
+                if (client.available()) { xml += (char)client.read(); i++; }
+                else delay(1);
+            }
+            client.readStringUntil('\n');  // trailing CRLF after chunk data
+        }
+    } else {
+        while ((client.connected() || client.available()) && millis() < deadline) {
+            while (client.available()) xml += (char)client.read();
+            delay(1);
+        }
     }
     client.stop();
 
@@ -192,7 +224,8 @@ static bool fetch_speaker_info(const String& location, SpeakerInfo& out) {
 
 // ── Zone-group topology ───────────────────────────────────────────────────────
 
-static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home) {
+static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
+                                              std::vector<SpeakerInfo>& speakers) {
     String path = home.control_url_base + "/ZoneGroupTopology/Control";
     String resp = sonos::soap::call(
         home.ip, home.port, path,
@@ -227,9 +260,17 @@ static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home) {
             if (ms < 0) break;
             int me = grp_xml.indexOf('>', ms);
             if (me < 0) break;
-            String mem_xml = grp_xml.substring(ms, me + 1);
-            String muuid = xml_attr(mem_xml, "UUID");
-            if (!muuid.isEmpty()) grp.member_uuids.push_back(muuid);
+            String mem_xml   = grp_xml.substring(ms, me + 1);
+            String muuid     = xml_attr(mem_xml, "UUID");
+            String zone_name = xml_attr(mem_xml, "ZoneName");
+            if (!muuid.isEmpty()) {
+                grp.member_uuids.push_back(muuid);
+                if (!zone_name.isEmpty()) {
+                    for (auto& sp : speakers) {
+                        if (sp.uuid == muuid) { sp.friendly_name = zone_name; break; }
+                    }
+                }
+            }
             m = me + 1;
         }
 
@@ -296,7 +337,7 @@ void sonos::discovery::run_cycle() {
     if (home_room_idx >= 0) {
         // Snapshot current groups to restore if fetch fails
         std::vector<ZoneGroup> prev_groups = sonos::state::snapshot().groups;
-        std::vector<ZoneGroup> groups = fetch_topology(speakers[home_room_idx]);
+        std::vector<ZoneGroup> groups = fetch_topology(speakers[home_room_idx], speakers);
         next.groups = groups.empty() ? prev_groups : groups;
     } else {
         next.groups = sonos::state::snapshot().groups;

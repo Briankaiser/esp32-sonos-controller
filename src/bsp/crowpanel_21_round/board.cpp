@@ -202,8 +202,9 @@ static void lvgl_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
         return;
     }
     data->state   = LV_INDEV_STATE_PRESSED;
-    data->point.x = static_cast<int32_t>(((xh & 0x0F) << 8) | xl);
-    data->point.y = static_cast<int32_t>(((yh & 0x0F) << 8) | yl);
+    // CST816 X/Y axes are swapped relative to this display's orientation
+    data->point.x = static_cast<int32_t>(((yh & 0x0F) << 8) | yl);
+    data->point.y = static_cast<int32_t>(((xh & 0x0F) << 8) | xl);
     Serial.printf("[Touch] x=%d y=%d (raw yh=0x%02X yl=0x%02X xh=0x%02X xl=0x%02X)\n",
                   (int)data->point.x, (int)data->point.y, yh, yl, xh, xl);
 }

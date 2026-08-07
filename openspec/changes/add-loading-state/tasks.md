@@ -1,9 +1,9 @@
 ## 1. Loading Overlay
 
-- [ ] 1.1 In `src/ui/screens/now_playing.cpp`, add two statics after the existing statics block:
+- [x] 1.1 In `src/ui/screens/now_playing.cpp`, add two statics after the existing statics block:
   `static lv_obj_t* s_loading_overlay = nullptr;` and `static bool s_loading_dismissed = false;`
 
-- [ ] 1.2 At the very end of `now_playing_create()`, just before `return scr`, add:
+- [x] 1.2 At the very end of `now_playing_create()`, just before `return scr`, add:
   ```cpp
   // Loading overlay — covers all screen content until first real state arrives
   s_loading_overlay = lv_obj_create(scr);
@@ -19,7 +19,7 @@
   lv_obj_align(loading_lbl, LV_ALIGN_CENTER, 0, 0);
   ```
 
-- [ ] 1.3 In `now_playing_update()`, add a guard at the very beginning of the function body (before `s_last = state`):
+- [x] 1.3 In `now_playing_update()`, add a guard at the very beginning of the function body (before `s_last = state`):
   ```cpp
   if (!s_loading_dismissed && state.transport_state != sonos::TransportState::Unknown) {
       s_loading_dismissed = true;
@@ -45,8 +45,8 @@
 
 ## 2. Verification
 
-- [ ] 2.1 `pio run -e crowpanel_21_round` exits 0
-- [ ] 2.2 `pio run -e ref_rect_stub` exits 0
-- [ ] 2.3 On hardware: power cycle the device — confirm the dimmed overlay with "Connecting…" text appears while the device is connecting and discovering speakers
-- [ ] 2.4 On hardware: confirm the overlay fades out within ~300 ms of the first playback state arriving and does not reappear
-- [ ] 2.5 Add `CHANGELOG.md` entry under `## [Unreleased]`: "A dimmed loading overlay with connecting text covers the now-playing screen until the first Sonos state is received."
+- [x] 2.1 `pio run -e crowpanel_21_round` exits 0
+- [x] 2.2 `pio run -e ref_rect_stub` exits 0
+- [x] 2.3 On hardware: power cycle the device — confirm the dimmed overlay with "Connecting…" text appears while the device is connecting and discovering speakers
+- [x] 2.4 On hardware: confirm the overlay fades out within ~300 ms of the first playback state arriving and does not reappear
+- [x] 2.5 Add `CHANGELOG.md` entry under `## [Unreleased]`: "A dimmed loading overlay with connecting text covers the now-playing screen until the first Sonos state is received."

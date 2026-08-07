@@ -13,6 +13,10 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- A dimmed loading overlay with connecting text covers the now-playing screen
+  until the first Sonos state is received.
+  ([add-loading-state](openspec/changes/add-loading-state/proposal.md))
+
 - Album art now loads asynchronously — transport controls and volume respond
   immediately during art decode. Switched to JPEGDEC for faster, more compatible
   JPEG decoding.

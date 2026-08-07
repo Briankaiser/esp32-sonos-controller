@@ -19,6 +19,8 @@ static lv_timer_t*        s_interp_timer   = nullptr;
 static lv_obj_t*          s_art_img        = nullptr;
 static lv_image_dsc_t     s_art_dsc        = {};
 static uint32_t           s_art_version    = 0;
+static lv_obj_t*          s_loading_overlay = nullptr;
+static bool               s_loading_dismissed = false;
 static sonos::PlaybackState s_last;
 
 // ── Interpolation timer (fires every 1 s on UI task) ─────────────────────────
@@ -196,13 +198,27 @@ lv_obj_t* screens::now_playing_create() {
     // ── SLOT_STATUS — room name / connectivity status ─────────────────────────
     lv_obj_t* status_cont = slot_container(scr, SLOT_STATUS);
     s_status_lbl = lv_label_create(status_cont);
-    lv_label_set_text(s_status_lbl, "Connecting\xe2\x80\xa6");
+    lv_label_set_text(s_status_lbl, "");
     lv_obj_set_style_text_font(s_status_lbl, font(FontRole::Caption), 0);
     lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x666666), 0);
     lv_obj_align(s_status_lbl, LV_ALIGN_CENTER, 0, 0);
 
     // 1 s interpolation timer
     s_interp_timer = lv_timer_create(interp_tick, 1000, nullptr);
+
+    // Loading overlay — covers all screen content until first real state arrives.
+    // Created last so it has the highest z-order within the screen.
+    s_loading_overlay = lv_obj_create(scr);
+    lv_obj_set_size(s_loading_overlay, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(s_loading_overlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_loading_overlay, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(s_loading_overlay, 0, 0);
+    lv_obj_remove_flag(s_loading_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* loading_lbl = lv_label_create(s_loading_overlay);
+    lv_label_set_text(loading_lbl, "Connecting...");
+    lv_obj_set_style_text_font(loading_lbl, font(FontRole::Caption), 0);
+    lv_obj_set_style_text_color(loading_lbl, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_align(loading_lbl, LV_ALIGN_CENTER, 0, 0);
 
     return scr;
 }
@@ -219,6 +235,28 @@ void screens::now_playing_init_art() {
 // ── now_playing_update ────────────────────────────────────────────────────────
 
 void screens::now_playing_update(const sonos::PlaybackState& state) {
+    // Dismiss loading overlay on first real state (one-shot, never reappears)
+    if (!s_loading_dismissed && state.transport_state != sonos::TransportState::Unknown) {
+        s_loading_dismissed = true;
+        if (s_status_lbl) lv_label_set_text(s_status_lbl, "");  // clear "Connecting..." from status slot
+        if (s_loading_overlay) {
+            static lv_anim_t s_fade;
+            lv_anim_init(&s_fade);
+            lv_anim_set_var(&s_fade, s_loading_overlay);
+            lv_anim_set_exec_cb(&s_fade, [](void* obj, int32_t v) {
+                lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), (lv_opa_t)v, 0);
+            });
+            lv_anim_set_completed_cb(&s_fade, [](lv_anim_t* a) {
+                lv_obj_delete(static_cast<lv_obj_t*>(a->var));
+                s_loading_overlay = nullptr;
+            });
+            lv_anim_set_values(&s_fade, LV_OPA_80, LV_OPA_TRANSP);
+            lv_anim_set_duration(&s_fade, 300);
+            lv_anim_set_path_cb(&s_fade, lv_anim_path_ease_out);
+            lv_anim_start(&s_fade);
+        }
+    }
+
     s_last = state;
     lv_obj_set_style_opa(s_transport_cont, LV_OPA_COVER, 0);  // clear any pending dim
 

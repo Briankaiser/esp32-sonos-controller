@@ -16,6 +16,7 @@
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
 #include "app/sonos/playback.h"
+#include "app/sonos/art.h"
 
 /* ── Task configuration ─────────────────────────────────────────────────────
  *
@@ -113,6 +114,14 @@ static void sonos_task(void* /*arg*/) {
                 const SpeakerInfo& hr = st.speakers[st.home_room_idx];
                 sonos::playback::drain_commands(hr);
                 sonos::playback::poll(hr);
+                // Signal art_task when URI changes — art_task runs at lower priority
+                {
+                    sonos::PlaybackState pb  = sonos::playback::snapshot();
+                    ArtState             art_cur = art::snapshot();
+                    if (!pb.album_art_uri.isEmpty() && pb.album_art_uri != art_cur.uri) {
+                        art::notify_new_uri();
+                    }
+                }
             } else {
                 Serial.println("[Playback] no home room — skipping poll");
             }
@@ -139,6 +148,7 @@ static void ui_task(void* /*arg*/) {
     lv_obj_t* scr = screens::now_playing_create();
     lv_screen_load(scr);
     s_active_scr = scr;
+    screens::now_playing_init_art();
 
     bsp::backlight(200);
 
@@ -252,6 +262,8 @@ void setup() {
     // Shared Sonos state mutex — must exist before any task that reads state
     sonos::state::init();
     sonos::playback::init();
+    art::init();
+    art::start_task();
 
     // Spawn tasks
     xTaskCreatePinnedToCore(sonos_task, "Sonos", kSonosTaskStackBytes,

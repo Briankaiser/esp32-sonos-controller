@@ -13,6 +13,15 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Album art now loads asynchronously — transport controls and volume respond
+  immediately during art decode. Switched to JPEGDEC for faster, more compatible
+  JPEG decoding.
+  ([improve-art-pipeline](openspec/changes/improve-art-pipeline/proposal.md))
+
+- Now-playing screen displays album art; the interface accent colour animates
+  to match each track's art.
+  ([add-album-art-accent-theming](openspec/changes/add-album-art-accent-theming/proposal.md))
+
 - Rotary encoder now controls Sonos volume in real time; short-press the encoder
   to toggle mute. The volume arc reflects the current level and grays out when muted.
   ([add-encoder-volume-control](openspec/changes/add-encoder-volume-control/proposal.md))

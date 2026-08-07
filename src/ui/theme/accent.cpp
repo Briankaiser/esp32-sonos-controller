@@ -23,19 +23,51 @@ struct Binding {
     lv_style_selector_t selector;
 };
 
-static lv_color_t         s_current = lv_color_hex(0x1DB954);  // default: Spotify green
+static lv_color_t           s_current    = lv_color_hex(0x1DB954);
+static lv_color_t           s_anim_from  = lv_color_hex(0x1DB954);
+static lv_color_t           s_anim_to    = lv_color_hex(0x1DB954);
 static std::vector<Binding> s_bindings;
+static constexpr uint8_t    kMinLumDiff  = 48;
 
-static constexpr uint8_t kMinLumDiff = 48;
+// Applies interpolated colour to every bound object.
+// anim_value runs 0 → 255 (LV_OPA_TRANSP → LV_OPA_COVER).
+static void anim_exec(void* /*var*/, int32_t anim_value) {
+    lv_color_t c = lv_color_mix(s_anim_to, s_anim_from, (lv_opa_t)anim_value);
+    for (const auto& b : s_bindings) {
+        b.set_fn(b.obj, c, b.selector);
+        lv_obj_invalidate(b.obj);
+    }
+}
+
+static void anim_done(lv_anim_t* /*a*/) {
+    s_current = s_anim_to;
+}
 
 } // anonymous namespace
 
-void accent::set(lv_color_t color, uint32_t /*duration_ms*/) {
-    s_current = color;
-    for (const auto& b : s_bindings) {
-        b.set_fn(b.obj, color, b.selector);
-        lv_obj_invalidate(b.obj);
+void accent::set(lv_color_t color, uint32_t duration_ms) {
+    if (duration_ms == 0) {
+        // Immediate update
+        s_current = color;
+        for (const auto& b : s_bindings) {
+            b.set_fn(b.obj, color, b.selector);
+            lv_obj_invalidate(b.obj);
+        }
+        return;
     }
+
+    s_anim_from = s_current;
+    s_anim_to   = color;
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_exec_cb(&a, anim_exec);
+    lv_anim_set_completed_cb(&a, anim_done);
+    lv_anim_set_var(&a, nullptr);
+    lv_anim_set_values(&a, 0, 255);
+    lv_anim_set_duration(&a, (uint32_t)duration_ms);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
 }
 
 lv_color_t accent::get() {

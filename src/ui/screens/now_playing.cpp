@@ -1,6 +1,8 @@
 #include "now_playing.h"
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
+#include "../theme/accent.h"
+#include "../../app/sonos/art.h"
 #include <lvgl.h>
 
 // ── Static widget handles (UI task only) ──────────────────────────────────────
@@ -14,6 +16,9 @@ static lv_obj_t*          s_status_lbl     = nullptr;
 static lv_obj_t*          s_transport_cont = nullptr;
 static lv_obj_t*          s_volume_arc     = nullptr;
 static lv_timer_t*        s_interp_timer   = nullptr;
+static lv_obj_t*          s_art_img        = nullptr;
+static lv_image_dsc_t     s_art_dsc        = {};
+static uint32_t           s_art_version    = 0;
 static sonos::PlaybackState s_last;
 
 // ── Interpolation timer (fires every 1 s on UI task) ─────────────────────────
@@ -53,11 +58,17 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
-    // ── SLOT_ALBUM_ART — dark placeholder square (art added in add-album-art) ─
-    lv_obj_t* art = layout_container(scr, SLOT_ALBUM_ART);
-    lv_obj_set_style_bg_color(art, lv_color_hex(0x333333), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(art, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(art, 8, LV_PART_MAIN);
+    // ── SLOT_ALBUM_ART — dark fallback + live image widget ───────────────────
+    lv_obj_t* art_cont = layout_container(scr, SLOT_ALBUM_ART);
+    lv_obj_set_style_bg_color(art_cont, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(art_cont, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(art_cont, 8, LV_PART_MAIN);
+    lv_obj_remove_flag(art_cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_art_img = lv_image_create(art_cont);
+    lv_obj_align(s_art_img, LV_ALIGN_CENTER, 0, 0);
+    lv_image_set_src(s_art_img, nullptr);  // hidden until art is available
+    lv_obj_add_flag(s_art_img, LV_OBJ_FLAG_HIDDEN);
 
     // ── SLOT_TRACK_INFO — three stacked labels (title / artist / album) ──────
     lv_obj_t* info = slot_container(scr, SLOT_TRACK_INFO);
@@ -196,6 +207,15 @@ lv_obj_t* screens::now_playing_create() {
     return scr;
 }
 
+// ── now_playing_init_art ──────────────────────────────────────────────────────
+
+void screens::now_playing_init_art() {
+    // Bind progress bar and volume arc to the accent token so set()/update()
+    // drives their indicator colours automatically.
+    if (s_progress_bar) accent::bind(s_progress_bar, LV_STYLE_BG_COLOR);
+    if (s_volume_arc)   accent::bind(s_volume_arc,   LV_STYLE_ARC_COLOR);
+}
+
 // ── now_playing_update ────────────────────────────────────────────────────────
 
 void screens::now_playing_update(const sonos::PlaybackState& state) {
@@ -221,7 +241,26 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
     if (s_volume_arc) {
         lv_arc_set_value(s_volume_arc, state.volume);
         lv_obj_set_style_arc_color(s_volume_arc,
-            state.muted ? lv_color_hex(0x555555) : lv_color_hex(0x1DB954),
+            state.muted ? lv_color_hex(0x555555) : accent::get(),
             LV_PART_INDICATOR);
+    }
+
+    // Update album art and accent when a new decode is ready
+    ArtState art = art::snapshot();
+    if (art.version != s_art_version && art.pixels != nullptr) {
+        s_art_version               = art.version;
+        s_art_dsc.header.magic      = LV_IMAGE_HEADER_MAGIC;
+        s_art_dsc.header.cf         = LV_COLOR_FORMAT_RGB565;  // matches TJpgDec JD_FORMAT=1
+        s_art_dsc.header.w          = art.w;
+        s_art_dsc.header.h          = art.h;
+        s_art_dsc.header.stride     = (uint32_t)art.w * 2u;
+        s_art_dsc.data_size         = (uint32_t)art.w * art.h * 2u;
+        s_art_dsc.data              = art.pixels;
+        lv_image_set_src(s_art_img, &s_art_dsc);
+        lv_obj_remove_flag(s_art_img, LV_OBJ_FLAG_HIDDEN);
+
+        lv_color_t adjusted = accent::adjusted_for_legibility(
+            art.accent, lv_color_hex(0x1A1A1A));
+        accent::set(adjusted, 400);
     }
 }

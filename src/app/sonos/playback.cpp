@@ -233,9 +233,10 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     // TrackMetaData is HTML-entity-encoded DIDL-Lite XML
     String didl_encoded = extract_xml_text(pos_resp, "TrackMetaData");
     String didl = html_decode(didl_encoded);
-    String title  = extract_xml_text(didl, "dc:title");
-    String artist = extract_xml_text(didl, "dc:creator");
-    String album  = extract_xml_text(didl, "upnp:album");
+    String title   = extract_xml_text(didl, "dc:title");
+    String artist  = extract_xml_text(didl, "dc:creator");
+    String album   = extract_xml_text(didl, "upnp:album");
+    String art_uri = extract_xml_text(didl, "upnp:albumArtURI");
 
     // GetVolume + GetMute via RenderingControl
     static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
@@ -266,6 +267,7 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     next.title             = title;
     next.artist            = artist;
     next.album             = album;
+    next.album_art_uri     = art_uri;
     next.track_uri         = track_uri;
     next.duration_s        = duration_s;
     next.position_s        = position_s;

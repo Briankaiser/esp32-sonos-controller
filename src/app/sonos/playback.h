@@ -18,6 +18,7 @@ struct PlaybackState {
     String         title;
     String         artist;
     String         album;
+    String         album_art_uri;
     String         track_uri;
     uint32_t       duration_s        = 0;
     uint32_t       position_s        = 0;

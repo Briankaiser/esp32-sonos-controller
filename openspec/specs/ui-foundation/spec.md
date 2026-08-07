@@ -81,18 +81,19 @@ Screens SHALL select type by semantic role rather than by point or pixel size. E
 
 ### Requirement: A Single Accent Colour Token Drives Interface Emphasis
 
-The interface SHALL expose one accent colour token. Emphasised elements SHALL derive their colour from that token. Updating the token SHALL update every element deriving from it, and the transition SHALL be animated rather than instantaneous.
+The interface SHALL expose one accent colour token. Emphasised elements SHALL derive their colour from that token. Updating the token SHALL update every element deriving from it, and the transition SHALL be animated over approximately 400 milliseconds rather than instantaneous. The token SHALL be updated when album art dominant colour is available. If the derived colour is not sufficiently distinguishable from the interface background, the device SHALL apply a legibility adjustment before using it as the accent.
 
-#### Scenario: Accent token updated
+#### Scenario: Accent updated from album art
 
-- **WHEN** the accent colour token is set to a new value
-- **THEN** every element deriving from it adopts the new colour
-- **AND** the change is animated rather than applied in a single frame
+- **WHEN** a new album art dominant colour is available
+- **THEN** the accent-derived elements begin transitioning toward the new colour
+- **AND** the transition completes within approximately 400 ms
 
-#### Scenario: Accent contrast is legible
+#### Scenario: Accent contrast is legible after update
 
-- **WHEN** the accent token is set to a value very close to the interface background
-- **THEN** emphasised elements remain distinguishable from the background
+- **WHEN** the derived dominant colour has low contrast against the dark background
+- **THEN** the applied accent colour is adjusted to remain distinguishable
+- **AND** the animated transition still occurs
 
 ### Requirement: Input Is Delivered To Screens As Intents
 

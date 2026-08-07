@@ -82,8 +82,8 @@
 - [x] 7.1 `pio run -e crowpanel_21_round` exits 0
 - [x] 7.2 `pio run -e ref_rect_stub` exits 0
 - [x] 7.3 `openspec validate --all --strict` is clean
-- [ ] 7.4 On hardware: play a track with album art — confirm the art appears in the album art slot within a few seconds of the track starting
-- [ ] 7.5 On hardware: skip to a different track — confirm the art updates to the new track's image
-- [ ] 7.6 On hardware: confirm the progress bar and volume arc colour transitions to match the album art
-- [ ] 7.7 On hardware: `curl http://<ip>/screenshot -o art.bmp` — attach screenshot showing the now-playing screen with live album art and a non-green accent colour
+- [x] 7.4 On hardware: play a track with album art — confirm the art appears in the album art slot within a few seconds of the track starting
+- [x] 7.5 On hardware: skip to a different track — confirm the art updates to the new track's image
+- [x] 7.6 On hardware: confirm the progress bar and volume arc colour transitions to match the album art
+- [x] 7.7 On hardware: `curl http://<ip>/screenshot -o art.bmp` — attach screenshot showing the now-playing screen with live album art and a non-green accent colour
 - [x] 7.8 Add `CHANGELOG.md` entry under `## [Unreleased]`: "Now-playing screen displays album art; the interface accent colour animates to match each track's art."

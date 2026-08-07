@@ -1,12 +1,12 @@
 ## Purpose
 
-Polls the home room Sonos speaker for transport state and track metadata, interpolates track position between polls, and executes transport commands (play, pause, next, previous) issued by the UI layer. All network I/O runs off the UI task; state is exposed to any task through a thread-safe snapshot interface.
+Polls the home room Sonos speaker for transport state, track metadata, volume, and mute state; interpolates track position between polls; and executes transport commands (play, pause, next, previous, mute toggle) issued by the UI layer. All network I/O runs off the UI task; state is exposed to any task through a thread-safe snapshot interface.
 
 ## Requirements
 
 ### Requirement: Device Polls Playback State from the Home Room Speaker
 
-While the home room speaker is resolved, the device SHALL periodically poll that speaker for its current transport state (playing, paused, stopped, or transitioning), current track title, artist name, album name, total track duration, and elapsed position. When no home room speaker is resolved, polling SHALL be skipped and the device SHALL continue operating without error.
+While the home room speaker is resolved, the device SHALL periodically poll that speaker for its current transport state (playing, paused, stopped, or transitioning), current track title, artist name, album name, total track duration, elapsed position, volume level (0–100), and mute state. When no home room speaker is resolved, polling SHALL be skipped and the device SHALL continue operating without error.
 
 #### Scenario: Home room is playing a track
 
@@ -22,6 +22,12 @@ While the home room speaker is resolved, the device SHALL periodically poll that
 - **THEN** playback polling is skipped
 - **AND** the device logs `[Playback] no home room — skipping poll` to serial
 - **AND** the device continues operating normally
+
+#### Scenario: Home room volume and mute are polled
+
+- **WHEN** the home room speaker is resolved and a poll cycle runs
+- **THEN** the recorded volume matches what the speaker reports
+- **AND** the recorded mute state matches what the speaker reports
 
 #### Scenario: Poll request fails
 
@@ -47,13 +53,19 @@ Between network polls, the device SHALL advance the reported elapsed position fo
 
 ### Requirement: Transport Commands Are Executed Without Blocking the UI Task
 
-When the user issues a transport command (play, pause, next, previous), the device SHALL execute the corresponding UPnP action on the home room speaker. The command SHALL be executed on the sonos task, not on the UI task. The UI task SHALL be able to enqueue a command without blocking.
+When the user issues a transport command (play, pause, next, previous, or mute toggle), the device SHALL execute the corresponding UPnP action on the home room speaker. The command SHALL be executed on the sonos task, not on the UI task. The UI task SHALL be able to enqueue a command without blocking.
 
 #### Scenario: User taps play while paused
 
 - **WHEN** the home room speaker is in a Paused state and a Play command is enqueued
 - **THEN** the sonos task issues a Play action to the home room speaker via UPnP
 - **AND** the next state poll reflects that the speaker is Playing
+
+#### Scenario: Mute toggle command is enqueued and executed
+
+- **WHEN** a ToggleMute command is enqueued and the sonos task drains it
+- **THEN** the home room speaker's mute state is inverted via a `SetMute` call
+- **AND** the next poll reflects the updated mute state
 
 #### Scenario: Command issued when no home room resolved
 

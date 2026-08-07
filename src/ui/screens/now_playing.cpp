@@ -60,28 +60,33 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
-    // ── SLOT_ALBUM_ART — dark fallback + live image widget ───────────────────
+    // ── SLOT_ALBUM_ART — full-screen background (slot is 480×480) ───────────
     lv_obj_t* art_cont = layout_container(scr, SLOT_ALBUM_ART);
-    lv_obj_set_style_bg_color(art_cont, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(art_cont, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(art_cont, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(art_cont, 8, LV_PART_MAIN);
     lv_obj_remove_flag(art_cont, LV_OBJ_FLAG_SCROLLABLE);
 
     s_art_img = lv_image_create(art_cont);
-    lv_obj_align(s_art_img, LV_ALIGN_CENTER, 0, 0);
-    lv_image_set_src(s_art_img, nullptr);  // hidden until art is available
+    lv_obj_set_size(s_art_img, lv_pct(100), lv_pct(100));
+    lv_image_set_inner_align(s_art_img, LV_IMAGE_ALIGN_COVER);
+    lv_image_set_src(s_art_img, nullptr);
     lv_obj_add_flag(s_art_img, LV_OBJ_FLAG_HIDDEN);
 
-    // ── SLOT_TRACK_INFO — three stacked labels (title / artist / album) ──────
+    // ── SLOT_TRACK_INFO — frosted overlay band with three stacked labels ──────
     lv_obj_t* info = slot_container(scr, SLOT_TRACK_INFO);
+    // Frosted dark backdrop so art is visible but text stays readable
+    lv_obj_set_style_bg_color(info, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(info, LV_OPA_50, 0);
+    lv_obj_set_style_radius(info, 12, 0);
     lv_obj_set_layout(info, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(info, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(info, 0, 0);
+    lv_obj_set_style_pad_all(info, 8, 0);
+    lv_obj_set_style_pad_row(info, 2, 0);
 
     s_title_lbl = lv_label_create(info);
     lv_label_set_text(s_title_lbl, "\xe2\x80\x94");
-    lv_obj_set_style_text_font(s_title_lbl, font(FontRole::Title), 0);
+    lv_obj_set_style_text_font(s_title_lbl, font(FontRole::Display), 0);  // large title
     lv_obj_set_style_text_color(s_title_lbl, lv_color_hex(0xEEEEEE), 0);
     lv_obj_set_style_text_align(s_title_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_title_lbl, LV_LABEL_LONG_DOT);
@@ -89,7 +94,7 @@ lv_obj_t* screens::now_playing_create() {
 
     s_artist_lbl = lv_label_create(info);
     lv_label_set_text(s_artist_lbl, "");
-    lv_obj_set_style_text_font(s_artist_lbl, font(FontRole::Body), 0);
+    lv_obj_set_style_text_font(s_artist_lbl, font(FontRole::Title), 0);
     lv_obj_set_style_text_color(s_artist_lbl, lv_color_hex(0xAAAAAA), 0);
     lv_obj_set_style_text_align(s_artist_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_artist_lbl, LV_LABEL_LONG_DOT);
@@ -97,7 +102,7 @@ lv_obj_t* screens::now_playing_create() {
 
     s_album_lbl = lv_label_create(info);
     lv_label_set_text(s_album_lbl, "");
-    lv_obj_set_style_text_font(s_album_lbl, font(FontRole::Caption), 0);
+    lv_obj_set_style_text_font(s_album_lbl, font(FontRole::Body), 0);
     lv_obj_set_style_text_color(s_album_lbl, lv_color_hex(0x777777), 0);
     lv_obj_set_style_text_align(s_album_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_album_lbl, LV_LABEL_LONG_DOT);
@@ -178,14 +183,16 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_remove_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // sits above transport — must not absorb touch
     if constexpr (kDisplay.has_encoder) {
         s_volume_arc = lv_arc_create(vol_cont);
-        lv_obj_set_size(s_volume_arc, lv_pct(100), lv_pct(100));
+        // 97% of the 480×480 slot → 466×466 arc, visual radius ≈232px (near display edge)
+        lv_obj_set_size(s_volume_arc, lv_pct(97), lv_pct(97));
+        lv_obj_align(s_volume_arc, LV_ALIGN_CENTER, 0, 0);
         lv_arc_set_rotation(s_volume_arc, 135);
         lv_arc_set_bg_angles(s_volume_arc, 0, 270);
         lv_arc_set_value(s_volume_arc, 50);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x333333), LV_PART_MAIN);
-        lv_obj_set_style_arc_width(s_volume_arc, 6, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(s_volume_arc, 6, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
+        lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_MAIN);      // thicker track
+        lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_INDICATOR);
         lv_obj_remove_flag(s_volume_arc, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(s_volume_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     } else {

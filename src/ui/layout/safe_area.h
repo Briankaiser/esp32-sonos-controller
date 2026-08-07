@@ -46,16 +46,16 @@ constexpr bool slot_in_disc(const LayoutSlot& s) {
 
 #ifdef OPENSONOS_SHAPE_ROUND
 
-static_assert(safe_area::slot_in_disc(slot(SLOT_ALBUM_ART)),
-    "SLOT_ALBUM_ART escapes the inscribed disc — adjust archetype_round_compact.h");
+// SLOT_ALBUM_ART intentionally spans the full 480×480 framebuffer (full-bleed background).
+// The round display hardware clips all rendering to the disc. No assert needed.
 static_assert(safe_area::slot_in_disc(slot(SLOT_TRACK_INFO)),
     "SLOT_TRACK_INFO escapes the inscribed disc — adjust archetype_round_compact.h");
 static_assert(safe_area::slot_in_disc(slot(SLOT_TRANSPORT)),
     "SLOT_TRANSPORT escapes the inscribed disc — adjust archetype_round_compact.h");
 static_assert(safe_area::slot_in_disc(slot(SLOT_PROGRESS)),
     "SLOT_PROGRESS escapes the inscribed disc — adjust archetype_round_compact.h");
-static_assert(safe_area::slot_in_disc(slot(SLOT_VOLUME_ARC)),
-    "SLOT_VOLUME_ARC escapes the inscribed disc — adjust archetype_round_compact.h");
+// SLOT_VOLUME_ARC intentionally spans the full 480×480 framebuffer (circular arc widget).
+// Arc content is geometrically confined to the disc regardless of slot bounding box.
 static_assert(safe_area::slot_in_disc(slot(SLOT_LIST)),
     "SLOT_LIST escapes the inscribed disc — adjust archetype_round_compact.h");
 static_assert(safe_area::slot_in_disc(slot(SLOT_STATUS)),

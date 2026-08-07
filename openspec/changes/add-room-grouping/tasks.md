@@ -58,9 +58,9 @@
 
 - [x] 5.1 `pio run -e crowpanel_21_round` exits 0
 - [x] 5.2 `pio run -e ref_rect_stub` exits 0
-- [ ] 5.3 On hardware: confirm "Solo" appears in the status strip when home room is not in a group
-- [ ] 5.4 On hardware: tap the status strip — confirm the group overlay appears with a list of speakers
-- [ ] 5.5 On hardware: tap a speaker in the overlay — confirm home room joins that group and plays in sync
-- [ ] 5.6 On hardware: tap status strip and select "Go Solo" — confirm home room leaves the group and plays independently
-- [ ] 5.7 On hardware: tap outside the list — confirm overlay closes without any action
+- [x] 5.3 On hardware: confirm "Solo" appears in the status strip when home room is not in a group
+- [x] 5.4 On hardware: tap the status strip — confirm the group overlay appears with a list of speakers
+- [x] 5.5 On hardware: tap a speaker in the overlay — confirm home room joins that group and plays in sync
+- [x] 5.6 On hardware: tap status strip and select "Go Solo" — confirm home room leaves the group and plays independently
+- [x] 5.7 On hardware: tap outside the list — confirm overlay closes without any action
 - [x] 5.8 Add `CHANGELOG.md` entry under `## [Unreleased]`: "Tap the status strip to open the group overlay; join any speaker's group or go solo with a single tap."

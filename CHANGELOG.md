@@ -13,6 +13,10 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Tap the status strip to open the group overlay; join any speaker's group or
+  go solo with a single tap.
+  ([add-room-grouping](openspec/changes/add-room-grouping/proposal.md))
+
 - A dimmed loading overlay with connecting text covers the now-playing screen
   until the first Sonos state is received.
   ([add-loading-state](openspec/changes/add-loading-state/proposal.md))

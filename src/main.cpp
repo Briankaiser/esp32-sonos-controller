@@ -105,6 +105,11 @@ static void web_task(void* /*arg*/) {
  * protected); the UI task reads state via sonos::state::snapshot().
  */
 static void sonos_task(void* /*arg*/) {
+    // Register this task handle so enqueue_command() can wake us immediately
+    sonos::playback::set_notify_task(xTaskGetCurrentTaskHandle());
+
+    uint8_t s_volume_skip = 0;  // poll volume every 5th cycle (saves 2 SOAP calls per cycle)
+
     for (;;) {
         sonos::discovery::run_cycle();
         SonosState st = sonos::state::snapshot();
@@ -113,7 +118,34 @@ static void sonos_task(void* /*arg*/) {
             if (st.home_room_idx >= 0) {
                 const SpeakerInfo& hr = st.speakers[st.home_room_idx];
                 sonos::playback::drain_commands(hr);
-                sonos::playback::poll(hr);
+
+                // When home room is a group member, poll the coordinator for track info.
+                // Members mirror transport state but their GetPositionInfo returns
+                // x-rincon:<coordinator> instead of actual track metadata.
+                {
+                    sonos::PlaybackState pb_cur = sonos::playback::snapshot();
+                    const SpeakerInfo* poll_target = &hr;
+                    if (!pb_cur.group_coordinator_uuid.isEmpty() &&
+                        pb_cur.group_coordinator_uuid != hr.uuid) {
+                        for (const auto& sp : st.speakers) {
+                            if (sp.uuid == pb_cur.group_coordinator_uuid) {
+                                poll_target = &sp;
+                                break;
+                            }
+                        }
+                    }
+                    sonos::playback::poll(*poll_target);
+                    // Drain again immediately after poll — catches commands queued during SOAP calls
+                    sonos::playback::drain_commands(hr);
+                    // Volume: always home room, but only every 5th cycle (saves ~200ms/cycle)
+                    if (++s_volume_skip >= 4) {
+                        s_volume_skip = 0;
+                        const SpeakerInfo* vol_src = (poll_target != &hr) ? &hr : poll_target;
+                        sonos::playback::poll_volume(*vol_src);
+                        sonos::playback::drain_commands(hr);  // catch any commands from volume delay
+                    }
+                }
+
                 // Signal art_task when URI changes — art_task runs at lower priority
                 {
                     sonos::PlaybackState pb  = sonos::playback::snapshot();
@@ -125,7 +157,10 @@ static void sonos_task(void* /*arg*/) {
             } else {
                 Serial.println("[Playback] no home room — skipping poll");
             }
-            vTaskDelay(pdMS_TO_TICKS(sonos::playback::poll_interval_ms()));
+            // Use task notification instead of plain delay: enqueue_command() notifies
+            // us, so we wake immediately when a command arrives instead of waiting the
+            // full poll interval.
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(sonos::playback::poll_interval_ms()));
             // Re-snapshot so a freshly resolved home room is picked up mid-cycle
             st = sonos::state::snapshot();
         }
@@ -161,9 +196,13 @@ static void ui_task(void* /*arg*/) {
         bsp::InputEvent evt;
         while (bsp::pop_event(evt)) {
             switch (evt.intent) {
-                case bsp::Intent::VolumeDelta:
+                case bsp::Intent::VolumeDelta: {
                     sonos::playback::enqueue_volume_delta(-evt.value);  // negate: CW = up
+                    // Immediate arc feedback: compute expected volume from current state + delta
+                    sonos::PlaybackState pb_vol = sonos::playback::snapshot();
+                    screens::now_playing_update_volume_arc((int)pb_vol.volume - evt.value);
                     break;
+                }
                 case bsp::Intent::EncoderButtonDown:
                     s_btn_held    = true;
                     s_btn_down_ms = millis();

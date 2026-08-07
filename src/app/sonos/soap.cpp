@@ -45,17 +45,35 @@ String sonos::soap::call(const String& ip, uint16_t port,
         if (sp >= 0) status_code = status_line.substring(sp + 1, sp + 4).toInt();
     }
 
-    // Consume headers
+    // Consume headers; detect chunked transfer encoding
+    bool is_chunked = false;
     while (client.connected() && millis() < deadline) {
         String line = client.readStringUntil('\n');
-        if (line == "\r" || line.length() <= 1) break;
+        line.trim();
+        if (line.isEmpty()) break;
+        if (line.indexOf("chunked") >= 0) is_chunked = true;
     }
 
-    // Read body until connection closes
+    // Read body — decode chunked encoding if present
     String response = "";
-    while ((client.connected() || client.available()) && millis() < deadline) {
-        while (client.available()) response += (char)client.read();
-        delay(1);
+    if (is_chunked) {
+        while ((client.connected() || client.available()) && millis() < deadline) {
+            String size_line = client.readStringUntil('\n');
+            size_line.trim();
+            if (size_line.isEmpty()) continue;
+            uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
+            if (chunk_size == 0) break;
+            for (uint32_t i = 0; i < chunk_size && millis() < deadline; ) {
+                if (client.available()) { response += (char)client.read(); i++; }
+                else delay(1);
+            }
+            client.readStringUntil('\n');  // trailing CRLF after chunk
+        }
+    } else {
+        while ((client.connected() || client.available()) && millis() < deadline) {
+            while (client.available()) response += (char)client.read();
+            delay(1);
+        }
     }
     client.stop();
 

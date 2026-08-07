@@ -73,13 +73,14 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kW, 70),   // 336
         /*.h=*/ pct(kH, 70),   // 336
     },
-    // SLOT_STATUS — narrow strip at top centre
-    // Worst corner (139, 24): dx=101,dy=216, d²=56857 ✓
+    // SLOT_STATUS — tappable strip at top centre, y≈5%, 12% tall
+    // Top corners (139,24): dx=101,dy=216, d²=56857 ✓
+    // Bottom corners (340,82): dx=100,dy=158, d²=10000+24964=34964 ✓
     {
         /*.x=*/ pct(kW, 29),   // 139
         /*.y=*/ pct(kH, 5),    // 24
         /*.w=*/ pct(kW, 42),   // 201
-        /*.h=*/ pct(kH, 8),    // 38
+        /*.h=*/ pct(kH, 12),   // 57
     },
 }};
 

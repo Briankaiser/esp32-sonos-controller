@@ -8,11 +8,14 @@
 
 // ── Statics ──────────────────────────────────────────────────────────────────
 
-static SemaphoreHandle_t       s_mutex         = nullptr;
-static QueueHandle_t           s_cmd_queue     = nullptr;
+static SemaphoreHandle_t       s_mutex            = nullptr;
+static QueueHandle_t           s_cmd_queue        = nullptr;
 static sonos::PlaybackState    s_state;
 static std::atomic<int16_t>    s_pending_delta{0};
-static std::atomic<uint8_t>    s_boost_polls{0};     // remaining fast-poll cycles after an action
+static std::atomic<uint8_t>    s_boost_polls{0};
+static String                  s_group_target_uuid;
+static String                  s_group_op_target_uuid;
+static TaskHandle_t            s_notify_task_handle = nullptr;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -91,15 +94,38 @@ sonos::PlaybackState sonos::playback::snapshot() {
     return copy;
 }
 
+void sonos::playback::set_notify_task(void* handle) {
+    s_notify_task_handle = static_cast<TaskHandle_t>(handle);
+}
+
 void sonos::playback::enqueue_command(PlaybackCommand cmd) {
     uint8_t raw = static_cast<uint8_t>(cmd);
     if (xQueueSend(s_cmd_queue, &raw, 0) != pdTRUE) {
         Serial.println("[Playback] command queue full — dropped");
     }
+    // Wake the sonos_task immediately so it drains this command without waiting
+    if (s_notify_task_handle) xTaskNotifyGive(s_notify_task_handle);
 }
 
 void sonos::playback::enqueue_volume_delta(int16_t delta) {
     s_pending_delta.fetch_add(delta, std::memory_order_relaxed);
+    // Wake sonos_task immediately so SetVolume fires within ~100ms, same as button taps
+    if (s_notify_task_handle) xTaskNotifyGive(s_notify_task_handle);
+}
+
+void sonos::playback::set_group_target(const String& uuid) {
+    s_group_target_uuid = uuid;
+}
+
+void sonos::playback::set_group_op_target(const String& uuid) {
+    s_group_op_target_uuid = uuid;
+}
+
+void sonos::playback::update_group_uuid(const String& uuid) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_state.group_coordinator_uuid = uuid;
+    s_state.version++;
+    xSemaphoreGive(s_mutex);
 }
 
 uint32_t sonos::playback::poll_interval_ms() {
@@ -161,9 +187,101 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
                     Serial.println("[Playback] command ToggleMute failed");
                 }
                 s_boost_polls.store(4, std::memory_order_relaxed);
-                continue;  // action/args already handled above
+                continue;
+            }  // end ToggleMute
+
+            case PlaybackCommand::LeaveGroup: {
+                name = "LeaveGroup";
+                Serial.println("[Group] leaving group");
+                String r = sonos::soap::call(
+                    speaker.ip, speaker.port,
+                    "/MediaRenderer/AVTransport/Control",
+                    "urn:schemas-upnp-org:service:AVTransport:1",
+                    "BecomeCoordinatorOfStandaloneGroup",
+                    "<InstanceID>0</InstanceID>");
+                if (r.isEmpty()) Serial.println("[Group] LeaveGroup failed");
+                else update_group_uuid("");  // optimistic: standalone immediately
+                s_boost_polls.store(4, std::memory_order_relaxed);
+                continue;
             }
-        }
+
+            case PlaybackCommand::JoinGroup: {
+                name = "JoinGroup";
+                Serial.printf("[Group] joining coordinator %s\n",
+                              s_group_target_uuid.c_str());
+                String join_args = "<InstanceID>0</InstanceID><CurrentURI>x-rincon:"
+                                   + s_group_target_uuid
+                                   + "</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>";
+                String r = sonos::soap::call(
+                    speaker.ip, speaker.port,
+                    "/MediaRenderer/AVTransport/Control",
+                    "urn:schemas-upnp-org:service:AVTransport:1",
+                    "SetAVTransportURI", join_args);
+                if (r.isEmpty()) {
+                    Serial.println("[Group] JoinGroup SetAVTransportURI failed");
+                } else {
+                    String pr = sonos::soap::call(
+                        speaker.ip, speaker.port,
+                        "/MediaRenderer/AVTransport/Control",
+                        "urn:schemas-upnp-org:service:AVTransport:1",
+                        "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>");
+                    if (pr.isEmpty()) Serial.println("[Group] JoinGroup Play failed");
+                    else update_group_uuid(s_group_target_uuid);
+                }
+                s_boost_polls.store(4, std::memory_order_relaxed);
+                continue;
+            }
+
+            case PlaybackCommand::AddGroupMember: {
+                // Add another speaker to the home room's current group.
+                // Calls SetAVTransportURI on the TARGET speaker (not home room).
+                SonosState st_snap = sonos::state::snapshot();
+                String t_ip; uint16_t t_port = 0;
+                for (const auto& sp : st_snap.speakers) {
+                    if (sp.uuid == s_group_op_target_uuid) { t_ip = sp.ip; t_port = sp.port; break; }
+                }
+                if (!t_ip.isEmpty()) {
+                    // Use coordinator UUID — home room's coordinator or itself if coordinator
+                    PlaybackState pb_snap = snapshot();
+                    String coord = pb_snap.group_coordinator_uuid.isEmpty()
+                                   ? speaker.uuid   // home room is standalone — becomes coordinator
+                                   : pb_snap.group_coordinator_uuid;
+                    String args = "<InstanceID>0</InstanceID><CurrentURI>x-rincon:" + coord +
+                                  "</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>";
+                    String r = sonos::soap::call(t_ip, t_port,
+                        "/MediaRenderer/AVTransport/Control",
+                        "urn:schemas-upnp-org:service:AVTransport:1", "SetAVTransportURI", args);
+                    if (!r.isEmpty()) {
+                        sonos::soap::call(t_ip, t_port,
+                            "/MediaRenderer/AVTransport/Control",
+                            "urn:schemas-upnp-org:service:AVTransport:1", "Play",
+                            "<InstanceID>0</InstanceID><Speed>1</Speed>");
+                    }
+                    Serial.printf("[Group] AddGroupMember %s\n", s_group_op_target_uuid.c_str());
+                }
+                s_boost_polls.store(4, std::memory_order_relaxed);
+                continue;
+            }
+
+            case PlaybackCommand::RemoveGroupMember: {
+                // Make a specific speaker standalone.
+                // Calls BecomeCoordinatorOfStandaloneGroup on the TARGET speaker.
+                SonosState st_snap = sonos::state::snapshot();
+                String t_ip; uint16_t t_port = 0;
+                for (const auto& sp : st_snap.speakers) {
+                    if (sp.uuid == s_group_op_target_uuid) { t_ip = sp.ip; t_port = sp.port; break; }
+                }
+                if (!t_ip.isEmpty()) {
+                    sonos::soap::call(t_ip, t_port,
+                        "/MediaRenderer/AVTransport/Control",
+                        "urn:schemas-upnp-org:service:AVTransport:1",
+                        "BecomeCoordinatorOfStandaloneGroup", "<InstanceID>0</InstanceID>");
+                    Serial.printf("[Group] RemoveGroupMember %s\n", s_group_op_target_uuid.c_str());
+                }
+                s_boost_polls.store(4, std::memory_order_relaxed);
+                continue;
+            }
+        }  // end switch
 
         Serial.printf("[Playback] command %s\n", name);
         String resp = sonos::soap::call(speaker.ip, speaker.port, kPath, kSvc, action, args);
@@ -285,4 +403,32 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
         ts == TransportState::Transitioning? "Transitioning" : "Unknown";
     Serial.printf("[Playback] title=%s artist=%s state=%s\n",
                   title.c_str(), artist.c_str(), ts_label);
+}
+
+// ── poll_volume — fetch volume/mute from a specific speaker (always home room) ─
+
+void sonos::playback::poll_volume(const SpeakerInfo& speaker) {
+    static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
+    static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
+    static const char* kRCArgs = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+
+    PlaybackState prev = snapshot();
+    uint8_t volume = prev.volume;
+    bool    muted  = prev.muted;
+
+    String vol_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetVolume", kRCArgs);
+    if (!vol_resp.isEmpty()) {
+        int v = extract_xml_text(vol_resp, "CurrentVolume").toInt();
+        volume = (uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v);
+    }
+    String mute_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetMute", kRCArgs);
+    if (!mute_resp.isEmpty()) {
+        muted = (extract_xml_text(mute_resp, "CurrentMute") == "1");
+    }
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_state.volume  = volume;
+    s_state.muted   = muted;
+    s_state.version++;
+    xSemaphoreGive(s_mutex);
 }

@@ -1,8 +1,10 @@
 #include "now_playing.h"
+#include <algorithm>
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
 #include "../theme/accent.h"
 #include "../../app/sonos/art.h"
+#include "../../app/sonos/state.h"
 #include <lvgl.h>
 
 // ── Static widget handles (UI task only) ──────────────────────────────────────
@@ -19,8 +21,10 @@ static lv_timer_t*        s_interp_timer   = nullptr;
 static lv_obj_t*          s_art_img        = nullptr;
 static lv_image_dsc_t     s_art_dsc        = {};
 static uint32_t           s_art_version    = 0;
-static lv_obj_t*          s_loading_overlay = nullptr;
+static lv_obj_t*          s_loading_overlay   = nullptr;
 static bool               s_loading_dismissed = false;
+static lv_obj_t*          s_status_cont       = nullptr;
+static lv_obj_t*          s_group_overlay     = nullptr;
 static sonos::PlaybackState s_last;
 
 // ── Interpolation timer (fires every 1 s on UI task) ─────────────────────────
@@ -176,7 +180,9 @@ lv_obj_t* screens::now_playing_create() {
     lv_bar_set_range(s_progress_bar, 0, 100);
     lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x444444), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_progress_bar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_progress_bar, LV_OPA_COVER, LV_PART_INDICATOR);
 
     // ── SLOT_VOLUME_ARC — visual placeholder (no command wiring until add-encoder-volume) ──
     lv_obj_t* vol_cont = layout_container(scr, SLOT_VOLUME_ARC);
@@ -190,8 +196,10 @@ lv_obj_t* screens::now_playing_create() {
         lv_arc_set_bg_angles(s_volume_arc, 0, 270);
         lv_arc_set_value(s_volume_arc, 50);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
-        lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_MAIN);      // thicker track
+        lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_MAIN);
         lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_INDICATOR);
         lv_obj_remove_flag(s_volume_arc, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(s_volume_arc, LV_OPA_TRANSP, LV_PART_KNOB);
@@ -202,12 +210,18 @@ lv_obj_t* screens::now_playing_create() {
         lv_slider_set_value(slider, 50, LV_ANIM_OFF);
     }
 
-    // ── SLOT_STATUS — room name / connectivity status ─────────────────────────
-    lv_obj_t* status_cont = slot_container(scr, SLOT_STATUS);
-    s_status_lbl = lv_label_create(status_cont);
+    // ── SLOT_STATUS — group state indicator (tappable) ───────────────────────
+    s_status_cont = slot_container(scr, SLOT_STATUS);
+    lv_obj_add_flag(s_status_cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_status_cont, [](lv_event_t*) {
+        Serial.println("[UI] status tapped");
+        screens::now_playing_open_group_overlay();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    s_status_lbl = lv_label_create(s_status_cont);
     lv_label_set_text(s_status_lbl, "");
-    lv_obj_set_style_text_font(s_status_lbl, font(FontRole::Caption), 0);
-    lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(s_status_lbl, font(FontRole::Body), 0);
+    lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0xCCCCCC), 0);
     lv_obj_align(s_status_lbl, LV_ALIGN_CENTER, 0, 0);
 
     // 1 s interpolation timer
@@ -228,6 +242,148 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_align(loading_lbl, LV_ALIGN_CENTER, 0, 0);
 
     return scr;
+}
+
+// ── now_playing_open_group_overlay ───────────────────────────────────────────
+
+void screens::now_playing_open_group_overlay() {
+    if (s_group_overlay) return;  // already open
+
+    // Full-screen opaque backdrop on lv_layer_top() — opaque avoids compositing cost
+    s_group_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_group_overlay, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(s_group_overlay, lv_color_hex(0x111111), 0);
+    lv_obj_set_style_bg_opa(s_group_overlay, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_group_overlay, 0, 0);
+    lv_obj_remove_flag(s_group_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Tap backdrop (not list) to dismiss without action
+    lv_obj_add_event_cb(s_group_overlay, [](lv_event_t* e) {
+        if (lv_event_get_target(e) == s_group_overlay) {
+            lv_obj_delete(s_group_overlay);
+            s_group_overlay = nullptr;
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+
+    // Scrollable speaker list using SLOT_LIST geometry (inner square)
+    const LayoutSlot& ls = slot(SLOT_LIST);
+    lv_obj_t* list = lv_list_create(s_group_overlay);
+    lv_obj_set_pos(list, ls.x, ls.y);
+    lv_obj_set_size(list, ls.w, ls.h);
+    lv_obj_set_style_bg_color(list, lv_color_hex(0x1E1E1E), 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_radius(list, 12, 0);
+
+    // Helper: if name is still "IP - Sonos Model - UUID" extract just the model portion
+    auto clean_name = [](const String& raw) -> String {
+        int first = raw.indexOf(" - ");
+        if (first < 0) return raw;
+        int second = raw.indexOf(" - ", first + 3);
+        if (second < 0) return raw;
+        return raw.substring(first + 3, second);  // "Sonos Roam", "Sonos Amp", etc.
+    };
+
+    // Helper: make a list button with large, non-scrolling text and generous hit area
+    auto make_btn = [&](const char* text, lv_color_t color) -> lv_obj_t* {
+        lv_obj_t* btn = lv_list_add_button(list, nullptr, text);
+        lv_obj_set_height(btn, 72);
+        lv_obj_set_style_text_color(btn, color, 0);
+        lv_obj_set_style_text_font(btn, font(FontRole::Title), 0);
+        lv_obj_set_style_pad_all(btn, 12, 0);
+        lv_obj_set_ext_click_area(btn, 8);  // extend hit area by 8px on each side
+        // Get the text label and stop scrolling
+        lv_obj_t* lbl = lv_obj_get_child(btn, 0);
+        if (lbl) {
+            lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+            lv_obj_set_width(lbl, lv_pct(100));
+        }
+        return btn;
+    };
+
+    sonos::PlaybackState pb = sonos::playback::snapshot();
+    SonosState st = sonos::state::snapshot();
+    String home_uuid = (st.home_room_idx >= 0) ? st.speakers[st.home_room_idx].uuid : "";
+    bool is_grouped = !pb.group_coordinator_uuid.isEmpty();
+
+    // Determine which UUIDs are currently in the same group as home room
+    std::vector<String> group_member_uuids;
+    if (is_grouped) {
+        for (const auto& grp : st.groups) {
+            bool found = false;
+            for (const auto& m : grp.member_uuids) {
+                if (m == home_uuid) { found = true; break; }
+            }
+            if (grp.coordinator_uuid == home_uuid || found) {
+                group_member_uuids = grp.member_uuids;
+                if (std::find(group_member_uuids.begin(), group_member_uuids.end(),
+                              grp.coordinator_uuid) == group_member_uuids.end()) {
+                    group_member_uuids.push_back(grp.coordinator_uuid);
+                }
+                break;
+            }
+        }
+    }
+
+    // "Go Solo" — only relevant when grouped
+    if (is_grouped) {
+        lv_obj_t* solo_btn = make_btn("Go Solo", lv_color_hex(0xFFDD44));
+        lv_obj_add_event_cb(solo_btn, [](lv_event_t*) {
+            sonos::playback::enqueue_command(sonos::PlaybackCommand::LeaveGroup);
+            if (s_group_overlay) { lv_obj_delete(s_group_overlay); s_group_overlay = nullptr; }
+        }, LV_EVENT_CLICKED, nullptr);
+    }
+
+    // One checkbox entry per other speaker
+    for (const auto& sp : st.speakers) {
+        if (sp.uuid == home_uuid) continue;
+
+        String display_name = sp.friendly_name;
+        if (display_name.indexOf(" - ") >= 0) display_name = clean_name(display_name);
+
+        bool in_group = std::find(group_member_uuids.begin(), group_member_uuids.end(),
+                                  sp.uuid) != group_member_uuids.end();
+        const char* icon = in_group ? LV_SYMBOL_OK : nullptr;
+        lv_color_t color = in_group ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xBBBBBB);
+
+        // Store UUID + in_group flag packed into pointer (use heap struct)
+        struct BtnData { String uuid; bool in_group; };
+        BtnData* data = new BtnData{ sp.uuid, in_group };
+
+        lv_obj_t* btn = lv_list_add_button(list, icon, display_name.c_str());
+        lv_obj_set_height(btn, 72);
+        lv_obj_set_style_text_color(btn, color, 0);
+        lv_obj_set_style_text_font(btn, font(FontRole::Title), 0);
+        lv_obj_set_style_pad_all(btn, 12, 0);
+        lv_obj_set_ext_click_area(btn, 8);
+        lv_obj_t* lbl = lv_obj_get_child(btn, lv_obj_get_child_count(btn) - 1);
+        if (lbl) { lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT); lv_obj_set_width(lbl, lv_pct(85)); }
+        lv_obj_set_user_data(btn, data);
+
+        lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+            lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
+            BtnData* d = static_cast<BtnData*>(lv_obj_get_user_data(b));
+            if (d) {
+                sonos::playback::set_group_op_target(d->uuid);
+                if (d->in_group) {
+                    sonos::playback::enqueue_command(sonos::PlaybackCommand::RemoveGroupMember);
+                } else {
+                    sonos::playback::enqueue_command(sonos::PlaybackCommand::AddGroupMember);
+                }
+                delete d;
+                lv_obj_set_user_data(b, nullptr);
+            }
+            if (s_group_overlay) { lv_obj_delete(s_group_overlay); s_group_overlay = nullptr; }
+        }, LV_EVENT_CLICKED, nullptr);
+    }
+}
+
+// ── now_playing_update_volume_arc ────────────────────────────────────────────
+// Called from UI task on encoder turn for immediate visual feedback before poll.
+
+void screens::now_playing_update_volume_arc(int volume_0_100) {
+    if (!s_volume_arc) return;
+    int v = volume_0_100 < 0 ? 0 : volume_0_100 > 100 ? 100 : volume_0_100;
+    lv_arc_set_value(s_volume_arc, v);
 }
 
 // ── now_playing_init_art ──────────────────────────────────────────────────────
@@ -307,5 +463,24 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
         lv_color_t adjusted = accent::adjusted_for_legibility(
             art.accent, lv_color_hex(0x1A1A1A));
         accent::set(adjusted, 400);
+    }
+
+    // Update group status label
+    if (s_status_lbl) {
+        if (state.group_coordinator_uuid.isEmpty()) {
+            lv_label_set_text(s_status_lbl, "Solo");
+        } else {
+            // Find coordinator's friendly name
+            SonosState st = sonos::state::snapshot();
+            String coordinator_name;
+            for (const auto& sp : st.speakers) {
+                if (sp.uuid == state.group_coordinator_uuid) {
+                    coordinator_name = sp.friendly_name;
+                    break;
+                }
+            }
+            lv_label_set_text(s_status_lbl,
+                coordinator_name.isEmpty() ? "Group" : coordinator_name.c_str());
+        }
     }
 }

@@ -26,6 +26,7 @@ struct PlaybackState {
     uint32_t       version           = 0;
     uint8_t        volume            = 50;
     bool           muted             = false;
+    String         group_coordinator_uuid;  // empty = standalone; own uuid = coordinator; other = member
 };
 
 enum class PlaybackCommand : uint8_t {
@@ -34,6 +35,10 @@ enum class PlaybackCommand : uint8_t {
     Next,
     Previous,
     ToggleMute,
+    JoinGroup,          // home room joins target coordinator's group
+    LeaveGroup,         // home room goes standalone
+    AddGroupMember,     // target speaker joins home room's group (SOAP on target)
+    RemoveGroupMember,  // target speaker goes standalone (SOAP on target)
 };
 
 namespace playback {
@@ -42,11 +47,16 @@ namespace playback {
     void          init();
     void          update(const PlaybackState& next);          // sonos task only
     PlaybackState snapshot();                                  // any task, copies under mutex
-    void          enqueue_command(PlaybackCommand cmd);        // UI task, zero-timeout send
+    void          enqueue_command(PlaybackCommand cmd);        // UI task — also wakes sonos_task
     void          enqueue_volume_delta(int16_t delta);        // UI task, atomic accumulate
-    void          drain_commands(const SpeakerInfo& speaker); // sonos task
-    void          poll(const SpeakerInfo& speaker);           // sonos task
-    uint32_t      poll_interval_ms();                         // sonos task: 500ms if boost active, else kPollIntervalMs
+    void          set_notify_task(void* task_handle);         // call from sonos_task at startup
+    void          set_group_target(const String& coordinator_uuid);   // before JoinGroup
+    void          set_group_op_target(const String& member_uuid);    // before AddGroupMember/RemoveGroupMember
+    void          update_group_uuid(const String& uuid);           // sonos task
+    void          drain_commands(const SpeakerInfo& speaker);      // sonos task
+    void          poll(const SpeakerInfo& speaker);                // sonos task — fetches transport + volume
+    void          poll_volume(const SpeakerInfo& speaker);         // sonos task — fetches volume/mute only
+    uint32_t      poll_interval_ms();                              // sonos task: 500ms if boost active, else kPollIntervalMs
 }
 
 } // namespace sonos

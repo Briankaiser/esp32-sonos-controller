@@ -1,6 +1,7 @@
 #include "discovery.h"
 #include "state.h"
 #include "soap.h"
+#include "playback.h"
 #include "../../services/prefs.h"
 
 #include <Arduino.h>
@@ -256,7 +257,7 @@ static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
 
         int m = 0;
         while (true) {
-            int ms = grp_xml.indexOf("<ZoneMember ", m);
+            int ms = grp_xml.indexOf("<ZoneGroupMember", m);
             if (ms < 0) break;
             int me = grp_xml.indexOf('>', ms);
             if (me < 0) break;
@@ -330,12 +331,12 @@ void sonos::discovery::run_cycle() {
     }
 
     // ── 4.1 & 4.2: Zone-group topology ─────────────────────────────────────
+    // Topology fetch updates speakers[].friendly_name with ZoneGroupMember ZoneName.
+    // next.speakers must be assigned AFTER fetch_topology so zone names are included.
     SonosState next;
-    next.speakers      = speakers;
     next.home_room_idx = home_room_idx;
 
     if (home_room_idx >= 0) {
-        // Snapshot current groups to restore if fetch fails
         std::vector<ZoneGroup> prev_groups = sonos::state::snapshot().groups;
         std::vector<ZoneGroup> groups = fetch_topology(speakers[home_room_idx], speakers);
         next.groups = groups.empty() ? prev_groups : groups;
@@ -343,5 +344,27 @@ void sonos::discovery::run_cycle() {
         next.groups = sonos::state::snapshot().groups;
     }
 
+    next.speakers = speakers;  // assign after fetch_topology has populated zone names
     sonos::state::update(next);
+
+    // Derive group UUID from fresh topology and update playback state once per cycle.
+    // This corrects any drift from external group changes; optimistic updates handle
+    // the immediate feedback after user-initiated join/leave commands.
+    if (home_room_idx >= 0) {
+        const String& hr_uuid = speakers[home_room_idx].uuid;
+        String g_uuid;
+        for (const auto& grp : next.groups) {
+            bool is_coord = (grp.coordinator_uuid == hr_uuid);
+            bool is_member = false;
+            for (const auto& m : grp.member_uuids) {
+                if (m == hr_uuid) { is_member = true; break; }
+            }
+            if (is_member || is_coord) {
+                if (is_coord && grp.member_uuids.size() > 1) g_uuid = hr_uuid;
+                else if (!is_coord) g_uuid = grp.coordinator_uuid;
+                break;
+            }
+        }
+        sonos::playback::update_group_uuid(g_uuid);
+    }
 }

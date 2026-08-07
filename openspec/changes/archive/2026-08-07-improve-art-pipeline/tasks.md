@@ -66,7 +66,7 @@
 
 - [x] 5.1 `pio run -e crowpanel_21_round` exits 0
 - [x] 5.2 `pio run -e ref_rect_stub` exits 0
-- [ ] 5.3 On hardware: rotate encoder or tap transport during a track change — confirm controls respond immediately without the 3–5 s freeze
-- [ ] 5.4 On hardware: confirm album art loads correctly with accurate colors on a colorful image
-- [ ] 5.5 On hardware: `curl http://<ip>/screenshot -o art.bmp` — attach screenshot with live album art
+- [x] 5.3 On hardware: rotate encoder or tap transport during a track change — confirm controls respond immediately without the 3–5 s freeze
+- [x] 5.4 On hardware: confirm album art loads correctly with accurate colors on a colorful image
+- [x] 5.5 On hardware: `curl http://<ip>/screenshot -o art.bmp` — attach screenshot with live album art
 - [x] 5.6 Add `CHANGELOG.md` entry under `## [Unreleased]`: "Album art now loads asynchronously — transport controls and volume respond immediately during art decode. Switched to JPEGDEC for faster, more compatible JPEG decoding."

@@ -39,6 +39,7 @@ enum class PlaybackCommand : uint8_t {
     LeaveGroup,         // home room goes standalone
     AddGroupMember,     // target speaker joins home room's group (SOAP on target)
     RemoveGroupMember,  // target speaker goes standalone (SOAP on target)
+    PlayFavorite,       // play a Sonos Favorite; URI+metadata set via set_favorite()
 };
 
 namespace playback {
@@ -52,6 +53,7 @@ namespace playback {
     void          set_notify_task(void* task_handle);         // call from sonos_task at startup
     void          set_group_target(const String& coordinator_uuid);   // before JoinGroup
     void          set_group_op_target(const String& member_uuid);    // before AddGroupMember/RemoveGroupMember
+    void          set_favorite(const String& uri, const String& metadata, bool meta_ready); // before PlayFavorite
     void          update_group_uuid(const String& uuid);           // sonos task
     void          drain_commands(const SpeakerInfo& speaker);      // sonos task
     void          poll(const SpeakerInfo& speaker);                // sonos task — fetches transport + volume

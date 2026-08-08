@@ -17,6 +17,7 @@
 #include "app/sonos/discovery.h"
 #include "app/sonos/playback.h"
 #include "app/sonos/art.h"
+#include "app/sonos/favorites.h"
 
 /* ── Task configuration ─────────────────────────────────────────────────────
  *
@@ -108,7 +109,8 @@ static void sonos_task(void* /*arg*/) {
     // Register this task handle so enqueue_command() can wake us immediately
     sonos::playback::set_notify_task(xTaskGetCurrentTaskHandle());
 
-    uint8_t s_volume_skip = 0;  // poll volume every 5th cycle (saves 2 SOAP calls per cycle)
+    uint8_t s_volume_skip    = 0;
+    bool    s_favorites_done = false;
 
     for (;;) {
         sonos::discovery::run_cycle();
@@ -144,6 +146,12 @@ static void sonos_task(void* /*arg*/) {
                         sonos::playback::poll_volume(*vol_src);
                         sonos::playback::drain_commands(hr);  // catch any commands from volume delay
                     }
+                }
+
+                // Fetch favorites once after first successful poll
+                if (!s_favorites_done) {
+                    s_favorites_done = true;
+                    favorites::fetch(hr);
                 }
 
                 // Signal art_task when URI changes — art_task runs at lower priority
@@ -302,6 +310,7 @@ void setup() {
     sonos::state::init();
     sonos::playback::init();
     art::init();
+    favorites::init();
     art::start_task();
 
     // Spawn tasks

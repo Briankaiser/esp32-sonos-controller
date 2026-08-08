@@ -80,6 +80,12 @@ String sonos::soap::call(const String& ip, uint16_t port,
     if (status_code != 200) {
         Serial.printf("[SOAP] HTTP %d: %s %s#%s\n",
                       status_code, ip.c_str(), service_type.c_str(), action.c_str());
+        // Log in 200-char chunks to see full fault message
+        Serial.printf("[SOAP] fault[0]: %.200s\n", response.c_str());
+        if (response.length() > 200)
+            Serial.printf("[SOAP] fault[200]: %.200s\n", response.c_str() + 200);
+        if (response.length() > 400)
+            Serial.printf("[SOAP] fault[400]: %.200s\n", response.c_str() + 400);
         return "";
     }
     return response;

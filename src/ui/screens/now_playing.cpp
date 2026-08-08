@@ -1,4 +1,5 @@
 #include "now_playing.h"
+#include "../../app/sonos/favorites.h"
 #include <algorithm>
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
@@ -21,10 +22,14 @@ static lv_timer_t*        s_interp_timer   = nullptr;
 static lv_obj_t*          s_art_img        = nullptr;
 static lv_image_dsc_t     s_art_dsc        = {};
 static uint32_t           s_art_version    = 0;
-static lv_obj_t*          s_loading_overlay   = nullptr;
-static bool               s_loading_dismissed = false;
-static lv_obj_t*          s_status_cont       = nullptr;
-static lv_obj_t*          s_group_overlay     = nullptr;
+static lv_obj_t*          s_loading_overlay    = nullptr;
+static bool               s_loading_dismissed  = false;
+static lv_obj_t*          s_status_cont        = nullptr;
+static lv_obj_t*          s_group_overlay      = nullptr;
+static lv_obj_t*          s_favorites_overlay       = nullptr;
+static lv_obj_t*          s_favorites_list          = nullptr;
+static uint32_t           s_favorites_version_built = 0;
+static lv_obj_t*          s_art_cont                = nullptr;
 static sonos::PlaybackState s_last;
 
 // ── Interpolation timer (fires every 1 s on UI task) ─────────────────────────
@@ -64,13 +69,17 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
-    // ── SLOT_ALBUM_ART — full-screen background (slot is 480×480) ───────────
-    lv_obj_t* art_cont = layout_container(scr, SLOT_ALBUM_ART);
-    lv_obj_set_style_bg_color(art_cont, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(art_cont, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_remove_flag(art_cont, LV_OBJ_FLAG_SCROLLABLE);
+    // ── SLOT_ALBUM_ART — full-screen background; tap opens favorites ─────────
+    s_art_cont = layout_container(scr, SLOT_ALBUM_ART);
+    lv_obj_set_style_bg_color(s_art_cont, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_art_cont, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_remove_flag(s_art_cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_art_cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_art_cont, [](lv_event_t*) {
+        screens::now_playing_open_favorites_overlay();
+    }, LV_EVENT_CLICKED, nullptr);
 
-    s_art_img = lv_image_create(art_cont);
+    s_art_img = lv_image_create(s_art_cont);
     lv_obj_set_size(s_art_img, lv_pct(100), lv_pct(100));
     lv_image_set_inner_align(s_art_img, LV_IMAGE_ALIGN_COVER);
     lv_image_set_src(s_art_img, nullptr);
@@ -134,7 +143,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_add_event_cb(prev_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Previous);
         lv_obj_set_style_opa(s_transport_cont, LV_OPA_40, 0);
-    }, LV_EVENT_CLICKED, nullptr);
+    }, LV_EVENT_PRESSED, nullptr);
 
     // Play/Pause
     lv_obj_t* play_btn = lv_button_create(s_transport_cont);
@@ -154,7 +163,7 @@ lv_obj_t* screens::now_playing_create() {
                 ? sonos::PlaybackCommand::Pause
                 : sonos::PlaybackCommand::Play);
         lv_obj_set_style_opa(s_transport_cont, LV_OPA_40, 0);
-    }, LV_EVENT_CLICKED, nullptr);
+    }, LV_EVENT_PRESSED, nullptr);
 
     // Next
     lv_obj_t* next_btn = lv_button_create(s_transport_cont);
@@ -171,7 +180,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_add_event_cb(next_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Next);
         lv_obj_set_style_opa(s_transport_cont, LV_OPA_40, 0);
-    }, LV_EVENT_CLICKED, nullptr);
+    }, LV_EVENT_PRESSED, nullptr);
 
     // ── SLOT_PROGRESS — progress bar ─────────────────────────────────────────
     lv_obj_t* prog_cont = slot_container(scr, SLOT_PROGRESS);
@@ -216,7 +225,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_add_event_cb(s_status_cont, [](lv_event_t*) {
         Serial.println("[UI] status tapped");
         screens::now_playing_open_group_overlay();
-    }, LV_EVENT_CLICKED, nullptr);
+    }, LV_EVENT_PRESSED, nullptr);
 
     s_status_lbl = lv_label_create(s_status_cont);
     lv_label_set_text(s_status_lbl, "");
@@ -242,6 +251,80 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_align(loading_lbl, LV_ALIGN_CENTER, 0, 0);
 
     return scr;
+}
+
+// ── now_playing_open_favorites_overlay ───────────────────────────────────────
+
+void screens::now_playing_open_favorites_overlay() {
+    FavoritesState fav = favorites::snapshot();
+
+    // Build or rebuild the overlay if it doesn't exist yet or favorites changed
+    if (!s_favorites_overlay) {
+        // Opaque background — no per-pixel blending with art = fast render
+        s_favorites_overlay = lv_obj_create(lv_layer_top());
+        lv_obj_set_size(s_favorites_overlay, lv_pct(100), lv_pct(100));
+        lv_obj_set_style_bg_color(s_favorites_overlay, lv_color_hex(0x111111), 0);
+        lv_obj_set_style_bg_opa(s_favorites_overlay, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(s_favorites_overlay, 0, 0);
+        lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_SCROLLABLE);
+        // Tap outside list → hide (not delete; preserved for fast re-open)
+        lv_obj_add_event_cb(s_favorites_overlay, [](lv_event_t* e) {
+            if (lv_event_get_target(e) == s_favorites_overlay) {
+                lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+            }
+        }, LV_EVENT_CLICKED, nullptr);
+
+        const LayoutSlot& ls = slot(SLOT_LIST);
+        s_favorites_list = lv_list_create(s_favorites_overlay);
+        lv_obj_set_pos(s_favorites_list, ls.x + 8, ls.y + 8);
+        lv_obj_set_size(s_favorites_list, ls.w - 16, ls.h - 16);
+        lv_obj_set_style_bg_color(s_favorites_list, lv_color_hex(0x1E1E1E), 0);
+        lv_obj_set_style_border_width(s_favorites_list, 0, 0);
+        lv_obj_set_style_radius(s_favorites_list, 16, 0);
+
+        s_favorites_version_built = 0;  // force populate below
+    }
+
+    // Rebuild list contents when favorites data changes
+    if (fav.version != s_favorites_version_built) {
+        s_favorites_version_built = fav.version;
+        lv_obj_clean(s_favorites_list);  // remove all children
+
+        if (!fav.fetched || fav.items.empty()) {
+            lv_obj_t* empty_btn = lv_list_add_button(s_favorites_list, nullptr,
+                fav.fetched ? "No favorites" : "Loading...");
+            lv_obj_set_style_text_color(empty_btn, lv_color_hex(0x888888), 0);
+            lv_obj_clear_flag(empty_btn, LV_OBJ_FLAG_CLICKABLE);
+        } else {
+            // Use index stored as intptr — no heap allocation, safe across hide/show
+            for (int idx = 0; idx < (int)fav.items.size(); ++idx) {
+                lv_obj_t* btn = lv_list_add_button(s_favorites_list, nullptr,
+                    fav.items[idx].title.c_str());
+                lv_obj_set_height(btn, 84);
+                lv_obj_set_style_text_color(btn, lv_color_hex(0xEEEEEE), 0);
+                lv_obj_set_style_text_font(btn, font(FontRole::Title), 0);
+                lv_obj_set_style_pad_ver(btn, 16, 0);
+                lv_obj_set_style_pad_hor(btn, 16, 0);
+                lv_obj_set_ext_click_area(btn, 10);
+                lv_obj_t* lbl = lv_obj_get_child(btn, 0);
+                if (lbl) { lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT); lv_obj_set_width(lbl, lv_pct(100)); }
+                lv_obj_set_user_data(btn, (void*)(intptr_t)idx);
+                lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+                    lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
+                    int i = (int)(intptr_t)lv_obj_get_user_data(b);
+                    FavoritesState f = favorites::snapshot();
+                    if (i >= 0 && i < (int)f.items.size()) {
+                        sonos::playback::set_favorite(f.items[i].uri, f.items[i].metadata,
+                                                      f.items[i].metadata_ready);
+                        sonos::playback::enqueue_command(sonos::PlaybackCommand::PlayFavorite);
+                    }
+                    lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+                }, LV_EVENT_CLICKED, nullptr);
+            }
+        }
+    }
+
+    lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ── now_playing_open_group_overlay ───────────────────────────────────────────

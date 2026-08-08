@@ -15,6 +15,9 @@ static std::atomic<int16_t>    s_pending_delta{0};
 static std::atomic<uint8_t>    s_boost_polls{0};
 static String                  s_group_target_uuid;
 static String                  s_group_op_target_uuid;
+static String                  s_favorite_uri;
+static String                  s_favorite_metadata;
+static bool                    s_favorite_meta_ready = false;
 static TaskHandle_t            s_notify_task_handle = nullptr;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -119,6 +122,12 @@ void sonos::playback::set_group_target(const String& uuid) {
 
 void sonos::playback::set_group_op_target(const String& uuid) {
     s_group_op_target_uuid = uuid;
+}
+
+void sonos::playback::set_favorite(const String& uri, const String& metadata, bool meta_ready) {
+    s_favorite_uri        = uri;
+    s_favorite_metadata   = metadata;
+    s_favorite_meta_ready = meta_ready;
 }
 
 void sonos::playback::update_group_uuid(const String& uuid) {
@@ -281,6 +290,129 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
                 s_boost_polls.store(4, std::memory_order_relaxed);
                 continue;
             }
+
+            case PlaybackCommand::PlayFavorite: {
+                static const char* kAVPath = "/MediaRenderer/AVTransport/Control";
+                static const char* kAVSvc  = "urn:schemas-upnp-org:service:AVTransport:1";
+
+                // SetAVTransportURI must go to the coordinator, not a member.
+                // When the home room is a group member, find the coordinator.
+                const SpeakerInfo* play_target = &speaker;
+                {
+                    PlaybackState pb_snap = snapshot();
+                    if (!pb_snap.group_coordinator_uuid.isEmpty() &&
+                        pb_snap.group_coordinator_uuid != speaker.uuid) {
+                        SonosState st_snap = sonos::state::snapshot();
+                        for (const auto& sp : st_snap.speakers) {
+                            if (sp.uuid == pb_snap.group_coordinator_uuid) {
+                                play_target = &sp;
+                                Serial.printf("[Favorites] routing to coordinator %s\n",
+                                    sp.friendly_name.c_str());
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                Serial.printf("[Favorites] uri=%.60s ready=%d target=%s\n",
+                    s_favorite_uri.c_str(), (int)s_favorite_meta_ready,
+                    play_target->ip.c_str());
+
+                // XML-escape the URI (may contain & from decoded %26)
+                String xml_uri = s_favorite_uri;
+                xml_uri.replace("&", "&amp;");
+
+                // Use r:resMD directly if available (pre-encoded by Sonos, guaranteed correct).
+                // Otherwise HTML-encode the raw <item> XML as a fallback.
+                String meta;
+                if (s_favorite_meta_ready) {
+                    meta = s_favorite_metadata;  // already HTML-encoded
+                } else {
+                    meta = s_favorite_metadata;
+                    meta.replace("&",  "&amp;");
+                    meta.replace("<",  "&lt;");
+                    meta.replace(">",  "&gt;");
+                    meta.replace("\"", "&quot;");
+                }
+
+                bool played = false;
+
+                // For container URIs (streaming service playlists), try the Sonos Queue
+                // service first — newer Sonos firmware blocks these via SetAVTransportURI.
+                if (s_favorite_uri.startsWith("x-rincon-cpcontainer:") ||
+                    s_favorite_uri.startsWith("x-rincon-playlist:")) {
+                    // Clear the Queue service queue (same queue as AddURI uses)
+                    sonos::soap::call(play_target->ip, play_target->port,
+                        "/MediaRenderer/Queue/Control",
+                        "urn:schemas-sonos-com:service:Queue:1",
+                        "RemoveAllTracks",
+                        "<QueueID>0</QueueID><UpdateID>0</UpdateID>");
+                    // Step 1: add to Queue via Sonos Queue service
+                    String q_args =
+                        "<QueueID>0</QueueID><UpdateID>0</UpdateID>"
+                        "<EnqueuedURI>" + xml_uri + "</EnqueuedURI>"
+                        "<EnqueuedURIMetaData>" + meta + "</EnqueuedURIMetaData>"
+                        "<DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>"
+                        "<EnqueueAsNext>0</EnqueueAsNext>";
+                    String r1 = sonos::soap::call(play_target->ip, play_target->port,
+                        "/MediaRenderer/Queue/Control",
+                        "urn:schemas-sonos-com:service:Queue:1",
+                        "AddURI", q_args);
+                    if (r1.isEmpty()) {
+                        // Fall back to AVTransport AddURIToQueue
+                        String add_args =
+                            "<InstanceID>0</InstanceID>"
+                            "<EnqueuedURI>" + xml_uri + "</EnqueuedURI>"
+                            "<EnqueuedURIMetaData>" + meta + "</EnqueuedURIMetaData>"
+                            "<DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>"
+                            "<EnqueueAsNext>0</EnqueueAsNext>";
+                        String r2 = sonos::soap::call(play_target->ip, play_target->port,
+                            kAVPath, kAVSvc, "AddURIToQueue", add_args);
+                        if (!r2.isEmpty()) {
+                            sonos::soap::call(play_target->ip, play_target->port,
+                                kAVPath, kAVSvc, "SetAVTransportURI",
+                                "<InstanceID>0</InstanceID><CurrentURI>x-rincon-queue:"
+                                + play_target->uuid + "#0</CurrentURI>"
+                                "<CurrentURIMetaData></CurrentURIMetaData>");
+                            sonos::soap::call(play_target->ip, play_target->port,
+                                kAVPath, kAVSvc, "Seek",
+                                "<InstanceID>0</InstanceID><Unit>TRACK_NR</Unit><Target>1</Target>");
+                            played = true;
+                        } else {
+                            Serial.println("[Favorites] both Queue service and AddURIToQueue failed");
+                        }
+                    } else {
+                        // Queue service succeeded — switch to queue and play
+                        sonos::soap::call(play_target->ip, play_target->port,
+                            kAVPath, kAVSvc, "SetAVTransportURI",
+                            "<InstanceID>0</InstanceID><CurrentURI>x-rincon-queue:"
+                            + play_target->uuid + "#0</CurrentURI>"
+                            "<CurrentURIMetaData></CurrentURIMetaData>");
+                        sonos::soap::call(play_target->ip, play_target->port,
+                            kAVPath, kAVSvc, "Seek",
+                            "<InstanceID>0</InstanceID><Unit>TRACK_NR</Unit><Target>1</Target>");
+                        played = true;
+                    }
+                } else {
+                    // Direct URI (radio, track): SetAVTransportURI works
+                    String fav_args =
+                        "<InstanceID>0</InstanceID><CurrentURI>" + xml_uri +
+                        "</CurrentURI><CurrentURIMetaData>" + meta +
+                        "</CurrentURIMetaData>";
+                    String r = sonos::soap::call(play_target->ip, play_target->port,
+                        kAVPath, kAVSvc, "SetAVTransportURI", fav_args);
+                    played = !r.isEmpty();
+                    if (!played) Serial.println("[Favorites] SetAVTransportURI failed");
+                }
+
+                if (played) {
+                    sonos::soap::call(play_target->ip, play_target->port,
+                        kAVPath, kAVSvc, "Play",
+                        "<InstanceID>0</InstanceID><Speed>1</Speed>");
+                }
+                s_boost_polls.store(4, std::memory_order_relaxed);
+                continue;
+            }
         }  // end switch
 
         Serial.printf("[Playback] command %s\n", name);
@@ -351,9 +483,10 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     // TrackMetaData is HTML-entity-encoded DIDL-Lite XML
     String didl_encoded = extract_xml_text(pos_resp, "TrackMetaData");
     String didl = html_decode(didl_encoded);
-    String title   = extract_xml_text(didl, "dc:title");
-    String artist  = extract_xml_text(didl, "dc:creator");
-    String album   = extract_xml_text(didl, "upnp:album");
+    // Decode XML entities in text fields (e.g. &apos; → ' , &amp; → &)
+    String title   = html_decode(extract_xml_text(didl, "dc:title"));
+    String artist  = html_decode(extract_xml_text(didl, "dc:creator"));
+    String album   = html_decode(extract_xml_text(didl, "upnp:album"));
     String art_uri = extract_xml_text(didl, "upnp:albumArtURI");
 
     // GetVolume + GetMute via RenderingControl

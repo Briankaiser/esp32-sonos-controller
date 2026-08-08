@@ -13,6 +13,10 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Tap the album art to open Favorites; tap any item to play it immediately on
+  the home room speaker.
+  ([add-favorites-shortcuts](openspec/changes/add-favorites-shortcuts/proposal.md))
+
 - Tap the status strip to open the group overlay; join any speaker's group or
   go solo with a single tap.
   ([add-room-grouping](openspec/changes/add-room-grouping/proposal.md))

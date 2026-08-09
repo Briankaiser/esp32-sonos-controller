@@ -132,7 +132,10 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_t* prev_btn = lv_button_create(s_transport_cont);
     lv_obj_set_flex_grow(prev_btn, 1);
     lv_obj_set_height(prev_btn, lv_pct(100));
-    lv_obj_set_style_bg_opa(prev_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(prev_btn, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(prev_btn, LV_OPA_40, 0);  // translucent disc so icon pops on light art
+    lv_obj_set_style_radius(prev_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_margin_hor(prev_btn, 4, 0);
     lv_obj_set_style_border_width(prev_btn, 0, 0);
     lv_obj_set_style_shadow_width(prev_btn, 0, 0);
     lv_obj_t* prev_lbl = lv_label_create(prev_btn);
@@ -149,7 +152,10 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_t* play_btn = lv_button_create(s_transport_cont);
     lv_obj_set_flex_grow(play_btn, 1);
     lv_obj_set_height(play_btn, lv_pct(100));
-    lv_obj_set_style_bg_opa(play_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(play_btn, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(play_btn, LV_OPA_40, 0);
+    lv_obj_set_style_radius(play_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_margin_hor(play_btn, 4, 0);
     lv_obj_set_style_border_width(play_btn, 0, 0);
     lv_obj_set_style_shadow_width(play_btn, 0, 0);
     s_play_btn_lbl = lv_label_create(play_btn);
@@ -169,7 +175,10 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_t* next_btn = lv_button_create(s_transport_cont);
     lv_obj_set_flex_grow(next_btn, 1);
     lv_obj_set_height(next_btn, lv_pct(100));
-    lv_obj_set_style_bg_opa(next_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(next_btn, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(next_btn, LV_OPA_40, 0);
+    lv_obj_set_style_radius(next_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_margin_hor(next_btn, 4, 0);
     lv_obj_set_style_border_width(next_btn, 0, 0);
     lv_obj_set_style_shadow_width(next_btn, 0, 0);
     lv_obj_t* next_lbl = lv_label_create(next_btn);

@@ -1,6 +1,18 @@
 #include "soap.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
+// Serializes all SOAP calls across tasks (cmd_task, sonos_task, favorites, etc.)
+// so no two connections to the same speaker are ever open at once. Held only for
+// the duration of a single call — a higher-priority waiter (cmd_task) acquires it
+// the instant the current call finishes, via priority inheritance.
+static SemaphoreHandle_t s_net_mutex = nullptr;
+
+void sonos::soap::init() {
+    if (!s_net_mutex) s_net_mutex = xSemaphoreCreateMutex();
+}
 
 String sonos::soap::call(const String& ip, uint16_t port,
                          const String& path, const String& service_type,
@@ -15,10 +27,13 @@ String sonos::soap::call(const String& ip, uint16_t port,
         "</u:" + action + ">"
         "</s:Body></s:Envelope>";
 
+    if (s_net_mutex) xSemaphoreTake(s_net_mutex, portMAX_DELAY);
+
     WiFiClient client;
     client.setTimeout(5000);
     if (!client.connect(ip.c_str(), port, 5000)) {
         Serial.printf("[SOAP] connect failed %s:%u\n", ip.c_str(), (unsigned)port);
+        if (s_net_mutex) xSemaphoreGive(s_net_mutex);
         return "";
     }
 
@@ -77,15 +92,11 @@ String sonos::soap::call(const String& ip, uint16_t port,
     }
     client.stop();
 
+    if (s_net_mutex) xSemaphoreGive(s_net_mutex);
+
     if (status_code != 200) {
-        Serial.printf("[SOAP] HTTP %d: %s %s#%s\n",
-                      status_code, ip.c_str(), service_type.c_str(), action.c_str());
-        // Log in 200-char chunks to see full fault message
-        Serial.printf("[SOAP] fault[0]: %.200s\n", response.c_str());
-        if (response.length() > 200)
-            Serial.printf("[SOAP] fault[200]: %.200s\n", response.c_str() + 200);
-        if (response.length() > 400)
-            Serial.printf("[SOAP] fault[400]: %.200s\n", response.c_str() + 400);
+        Serial.printf("[SOAP] HTTP %d: %s#%s\n",
+                      status_code, service_type.c_str(), action.c_str());
         return "";
     }
     return response;

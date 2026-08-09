@@ -48,9 +48,11 @@ namespace playback {
     void          init();
     void          update(const PlaybackState& next);          // sonos task only
     PlaybackState snapshot();                                  // any task, copies under mutex
-    void          enqueue_command(PlaybackCommand cmd);        // UI task — also wakes sonos_task
-    void          enqueue_volume_delta(int16_t delta);        // UI task, atomic accumulate
-    void          set_notify_task(void* task_handle);         // call from sonos_task at startup
+    void          enqueue_command(PlaybackCommand cmd);        // UI task — wakes cmd_task
+    void          enqueue_volume_delta(int16_t delta);        // UI task — wakes cmd_task
+    void          set_cmd_notify_task(void* task_handle);     // call from cmd_task at startup
+    void          set_poll_notify_task(void* task_handle);    // call from sonos_task at startup
+    void          notify_poll_task();                          // cmd_task → trigger boost re-poll
     void          set_group_target(const String& coordinator_uuid);   // before JoinGroup
     void          set_group_op_target(const String& member_uuid);    // before AddGroupMember/RemoveGroupMember
     void          set_favorite(const String& uri, const String& metadata, bool meta_ready); // before PlayFavorite

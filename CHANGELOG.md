@@ -13,6 +13,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Interface is significantly more responsive: removed blocking debug logging from
+  the touch path, tightened the render cadence, and moved Sonos commands to a
+  dedicated high-priority task so taps no longer wait behind background polling.
+  ([improve-ui-responsiveness](openspec/changes/improve-ui-responsiveness/proposal.md))
+
 - Tap the album art to open Favorites; tap any item to play it immediately on
   the home room speaker.
   ([add-favorites-shortcuts](openspec/changes/add-favorites-shortcuts/proposal.md))

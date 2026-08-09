@@ -48,6 +48,11 @@
 
 /* ── Display ────────────────────────────────────────────────────────────────── */
 
+/* Default display refresh + input-read timer period. LVGL 9 defaults to 33 ms
+ * (~30 Hz); 16 ms gives ~60 Hz sampling for snappier touch and smoother render.
+ * Safe now that blocking Serial logging has been removed from the touch-read path. */
+#define LV_DEF_REFR_PERIOD          16
+
 #define LV_DRAW_BUF_ALIGN           4
 #define LV_DRAW_BUF_STRIDE_ALIGN    1
 

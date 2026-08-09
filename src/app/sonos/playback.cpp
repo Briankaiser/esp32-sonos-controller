@@ -18,7 +18,8 @@ static String                  s_group_op_target_uuid;
 static String                  s_favorite_uri;
 static String                  s_favorite_metadata;
 static bool                    s_favorite_meta_ready = false;
-static TaskHandle_t            s_notify_task_handle = nullptr;
+static TaskHandle_t            s_cmd_task_handle  = nullptr;  // drains commands, notified by enqueue
+static TaskHandle_t            s_poll_task_handle = nullptr;  // sonos poll loop, notified for boost re-poll
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,8 +98,16 @@ sonos::PlaybackState sonos::playback::snapshot() {
     return copy;
 }
 
-void sonos::playback::set_notify_task(void* handle) {
-    s_notify_task_handle = static_cast<TaskHandle_t>(handle);
+void sonos::playback::set_cmd_notify_task(void* handle) {
+    s_cmd_task_handle = static_cast<TaskHandle_t>(handle);
+}
+
+void sonos::playback::set_poll_notify_task(void* handle) {
+    s_poll_task_handle = static_cast<TaskHandle_t>(handle);
+}
+
+void sonos::playback::notify_poll_task() {
+    if (s_poll_task_handle) xTaskNotifyGive(s_poll_task_handle);
 }
 
 void sonos::playback::enqueue_command(PlaybackCommand cmd) {
@@ -106,14 +115,13 @@ void sonos::playback::enqueue_command(PlaybackCommand cmd) {
     if (xQueueSend(s_cmd_queue, &raw, 0) != pdTRUE) {
         Serial.println("[Playback] command queue full — dropped");
     }
-    // Wake the sonos_task immediately so it drains this command without waiting
-    if (s_notify_task_handle) xTaskNotifyGive(s_notify_task_handle);
+    // Wake the dedicated command task; it outranks the poll task so it drains now
+    if (s_cmd_task_handle) xTaskNotifyGive(s_cmd_task_handle);
 }
 
 void sonos::playback::enqueue_volume_delta(int16_t delta) {
     s_pending_delta.fetch_add(delta, std::memory_order_relaxed);
-    // Wake sonos_task immediately so SetVolume fires within ~100ms, same as button taps
-    if (s_notify_task_handle) xTaskNotifyGive(s_notify_task_handle);
+    if (s_cmd_task_handle) xTaskNotifyGive(s_cmd_task_handle);
 }
 
 void sonos::playback::set_group_target(const String& uuid) {
@@ -528,14 +536,6 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     next.version           = prev.version;
 
     update(next);
-
-    const char* ts_label =
-        ts == TransportState::Playing      ? "Playing" :
-        ts == TransportState::Paused       ? "Paused"  :
-        ts == TransportState::Stopped      ? "Stopped" :
-        ts == TransportState::Transitioning? "Transitioning" : "Unknown";
-    Serial.printf("[Playback] title=%s artist=%s state=%s\n",
-                  title.c_str(), artist.c_str(), ts_label);
 }
 
 // ── poll_volume — fetch volume/mute from a specific speaker (always home room) ─

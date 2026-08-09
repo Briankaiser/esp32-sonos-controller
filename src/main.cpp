@@ -15,6 +15,7 @@
 #include "services/rooms.h"
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
+#include "app/sonos/soap.h"
 #include "app/sonos/playback.h"
 #include "app/sonos/art.h"
 #include "app/sonos/favorites.h"
@@ -22,14 +23,18 @@
 /* ── Task configuration ─────────────────────────────────────────────────────
  *
  * ui_task    — core 1, owns ALL lv_* calls.  Never call LVGL from any other task.
+ * cmd_task   — core 0, drains user commands; higher priority than sonos_task so
+ *              a tap preempts an in-flight poll and executes immediately.
  * sonos_task — core 0, SSDP discovery + topology polling loop.
  * web_task   — core 0, runs WebServer::handleClient loop for screenshot + OTA.
  */
 
 static constexpr uint32_t kUiTaskStackBytes    = 12 * 1024;
 static constexpr uint32_t kSonosTaskStackBytes = 16 * 1024;
+static constexpr uint32_t kCmdTaskStackBytes    = 8 * 1024;
 static constexpr uint32_t kWebTaskStackBytes    = 8 * 1024;
 static constexpr UBaseType_t kUiTaskPriority    = 5;
+static constexpr UBaseType_t kCmdTaskPriority   = 4;   // above sonos_task so commands preempt polls
 static constexpr UBaseType_t kSonosTaskPriority = 3;
 
 // Queue for worker → UI results (placeholder — actual message type defined per change)
@@ -99,6 +104,27 @@ static void web_task(void* /*arg*/) {
     }
 }
 
+/* ── Command task (core 0, priority above sonos_task) ───────────────────────
+ *
+ * Blocks until enqueue_command/enqueue_volume_delta notifies it, then drains
+ * the command queue (transport, volume, mute, grouping, favorites) against the
+ * home room speaker.  Because it outranks sonos_task on core 0, a user command
+ * preempts an in-flight poll and executes within tens of ms instead of waiting
+ * for the poll's SOAP calls to finish.  After draining it nudges sonos_task to
+ * re-poll so the display reflects the new state quickly.
+ */
+static void cmd_task(void* /*arg*/) {
+    sonos::playback::set_cmd_notify_task(xTaskGetCurrentTaskHandle());
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        SonosState st = sonos::state::snapshot();
+        if (st.home_room_idx >= 0 && st.home_room_idx < (int)st.speakers.size()) {
+            sonos::playback::drain_commands(st.speakers[st.home_room_idx]);
+            sonos::playback::notify_poll_task();  // trigger boost re-poll
+        }
+    }
+}
+
 /* ── Sonos task (core 0) ────────────────────────────────────────────────────
  *
  * Runs SSDP discovery + zone-group topology refresh on boot, then repeats
@@ -106,8 +132,8 @@ static void web_task(void* /*arg*/) {
  * protected); the UI task reads state via sonos::state::snapshot().
  */
 static void sonos_task(void* /*arg*/) {
-    // Register this task handle so enqueue_command() can wake us immediately
-    sonos::playback::set_notify_task(xTaskGetCurrentTaskHandle());
+    // Register this task as the boost-repoll target; cmd_task notifies us after a command
+    sonos::playback::set_poll_notify_task(xTaskGetCurrentTaskHandle());
 
     uint8_t s_volume_skip    = 0;
     bool    s_favorites_done = false;
@@ -119,7 +145,6 @@ static void sonos_task(void* /*arg*/) {
         while (millis() - cycle_start_ms < sonos::discovery::kDiscoveryIntervalMs) {
             if (st.home_room_idx >= 0) {
                 const SpeakerInfo& hr = st.speakers[st.home_room_idx];
-                sonos::playback::drain_commands(hr);
 
                 // When home room is a group member, poll the coordinator for track info.
                 // Members mirror transport state but their GetPositionInfo returns
@@ -137,14 +162,11 @@ static void sonos_task(void* /*arg*/) {
                         }
                     }
                     sonos::playback::poll(*poll_target);
-                    // Drain again immediately after poll — catches commands queued during SOAP calls
-                    sonos::playback::drain_commands(hr);
-                    // Volume: always home room, but only every 5th cycle (saves ~200ms/cycle)
+                    // Volume: always home room, but only every 4th cycle (saves ~200ms/cycle)
                     if (++s_volume_skip >= 4) {
                         s_volume_skip = 0;
                         const SpeakerInfo* vol_src = (poll_target != &hr) ? &hr : poll_target;
                         sonos::playback::poll_volume(*vol_src);
-                        sonos::playback::drain_commands(hr);  // catch any commands from volume delay
                     }
                 }
 
@@ -246,8 +268,9 @@ static void ui_task(void* /*arg*/) {
             }
         }
 
-        // Yield for the remaining time LVGL says it won't need the CPU
-        uint32_t delay_ms = (next_ms < 1) ? 1 : (next_ms > 20 ? 20 : next_ms);
+        // Yield briefly. Cap at 8 ms so input is drained frequently (~120 Hz loop
+        // ceiling); LVGL still governs actual render cadence via LV_DEF_REFR_PERIOD.
+        uint32_t delay_ms = (next_ms < 1) ? 1 : (next_ms > 8 ? 8 : next_ms);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
@@ -308,12 +331,16 @@ void setup() {
 
     // Shared Sonos state mutex — must exist before any task that reads state
     sonos::state::init();
+    sonos::soap::init();       // SOAP serialization mutex — before any SOAP-calling task
     sonos::playback::init();
     art::init();
     favorites::init();
     art::start_task();
 
-    // Spawn tasks
+    // Spawn tasks. cmd_task first (priority 4) so its notify handle is registered
+    // before the UI task can enqueue any command.
+    xTaskCreatePinnedToCore(cmd_task, "Cmd", kCmdTaskStackBytes,
+                            nullptr, kCmdTaskPriority, nullptr, 0);
     xTaskCreatePinnedToCore(sonos_task, "Sonos", kSonosTaskStackBytes,
                             nullptr, kSonosTaskPriority, nullptr, 0);
     xTaskCreatePinnedToCore(ui_task, "UI", kUiTaskStackBytes,

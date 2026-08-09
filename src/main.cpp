@@ -219,6 +219,15 @@ static void ui_task(void* /*arg*/) {
 
     // Event loop
     for (;;) {
+        // If idle and a touch is active, wake the display and suppress this touch
+        // (handled in the BSP touch callback via now_playing_consume_wake_touch()).
+        if (screens::now_playing_is_idle()) {
+            lv_indev_t* indev = lv_indev_get_next(nullptr);
+            if (indev && lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+                screens::now_playing_wake_from_touch();
+            }
+        }
+
         uint32_t next_ms = lv_timer_handler();
         screenshot::poll(); // services pending screenshot requests from web_task
 

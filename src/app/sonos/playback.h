@@ -43,9 +43,11 @@ enum class PlaybackCommand : uint8_t {
 };
 
 namespace playback {
-    constexpr uint32_t kPollIntervalMs = 2000;
+    constexpr uint32_t kPollIntervalMs     = 2000;
+    constexpr uint32_t kIdlePollIntervalMs = 10000;  // reduced polling while display is idle
 
     void          init();
+    void          idle_mode(bool idle);                            // UI task: enter/exit idle poll cadence
     void          update(const PlaybackState& next);          // sonos task only
     PlaybackState snapshot();                                  // any task, copies under mutex
     void          enqueue_command(PlaybackCommand cmd);        // UI task — wakes cmd_task

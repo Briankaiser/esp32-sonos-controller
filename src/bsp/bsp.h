@@ -53,6 +53,13 @@ void input_init();
 void backlight(uint8_t brightness);
 
 /**
+ * Suppress touch reports until the current touch is released.  Used to consume
+ * the tap that wakes the display from idle so it does not also trigger a button.
+ * The touch layer reports "released" until the finger physically lifts.
+ */
+void suppress_touch_until_release();
+
+/**
  * Drain one pending InputEvent, if any.  Returns true and fills *evt
  * when an event is available; returns false when the queue is empty.
  *

@@ -12,4 +12,8 @@ namespace screens {
     void      now_playing_open_group_overlay();
     void      now_playing_open_favorites_overlay();
     void      now_playing_update_volume_arc(int volume_0_100);  // immediate UI feedback on encoder turn
+
+    // Idle state (UI task)
+    bool      now_playing_is_idle();          // true while the display is idle/off
+    void      now_playing_wake_from_touch();  // wake display; consumes the waking tap via BSP
 }

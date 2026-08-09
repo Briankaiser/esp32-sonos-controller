@@ -74,6 +74,10 @@ void bsp::backlight(uint8_t brightness) {
     ledcWrite(pins::BACKLIGHT, brightness);
 }
 
+void bsp::suppress_touch_until_release() {
+    // No touch input on the rectangular reference stub — no-op.
+}
+
 bool bsp::pop_event(InputEvent& /*evt*/) {
     return false;  // stub — no input events
 }

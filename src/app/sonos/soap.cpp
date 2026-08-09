@@ -14,6 +14,26 @@ void sonos::soap::init() {
     if (!s_net_mutex) s_net_mutex = xSemaphoreCreateMutex();
 }
 
+// Read one line (up to and including '\n') from the client, yielding while it
+// waits for data. Replaces Stream::readStringUntil, which busy-spins in
+// Stream::timedRead with no task yield and can starve the IDLE task (→ watchdog).
+// Returns the line without the trailing CRLF. Stops at the deadline.
+static String read_line(WiFiClient& client, uint32_t deadline) {
+    String line;
+    while (millis() < deadline) {
+        if (client.available()) {
+            char c = (char)client.read();
+            if (c == '\n') break;
+            if (c != '\r') line += c;
+        } else if (client.connected()) {
+            delay(1);  // yield to IDLE / other tasks while waiting for data
+        } else {
+            break;  // connection closed and no buffered data
+        }
+    }
+    return line;
+}
+
 String sonos::soap::call(const String& ip, uint16_t port,
                          const String& path, const String& service_type,
                          const String& action, const String& args_xml) {
@@ -52,8 +72,7 @@ String sonos::soap::call(const String& ip, uint16_t port,
 
     // Read status line
     uint32_t deadline = millis() + 5000;
-    while (!client.available() && millis() < deadline) delay(10);
-    String status_line = client.readStringUntil('\n');
+    String status_line = read_line(client, deadline);
     int status_code = 0;
     {
         int sp = status_line.indexOf(' ');
@@ -63,7 +82,7 @@ String sonos::soap::call(const String& ip, uint16_t port,
     // Consume headers; detect chunked transfer encoding
     bool is_chunked = false;
     while (client.connected() && millis() < deadline) {
-        String line = client.readStringUntil('\n');
+        String line = read_line(client, deadline);
         line.trim();
         if (line.isEmpty()) break;
         if (line.indexOf("chunked") >= 0) is_chunked = true;
@@ -73,7 +92,7 @@ String sonos::soap::call(const String& ip, uint16_t port,
     String response = "";
     if (is_chunked) {
         while ((client.connected() || client.available()) && millis() < deadline) {
-            String size_line = client.readStringUntil('\n');
+            String size_line = read_line(client, deadline);
             size_line.trim();
             if (size_line.isEmpty()) continue;
             uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
@@ -82,7 +101,7 @@ String sonos::soap::call(const String& ip, uint16_t port,
                 if (client.available()) { response += (char)client.read(); i++; }
                 else delay(1);
             }
-            client.readStringUntil('\n');  // trailing CRLF after chunk
+            read_line(client, deadline);  // trailing CRLF after chunk
         }
     } else {
         while ((client.connected() || client.available()) && millis() < deadline) {

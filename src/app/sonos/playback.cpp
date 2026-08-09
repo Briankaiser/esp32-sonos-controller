@@ -13,6 +13,7 @@ static QueueHandle_t           s_cmd_queue        = nullptr;
 static sonos::PlaybackState    s_state;
 static std::atomic<int16_t>    s_pending_delta{0};
 static std::atomic<uint8_t>    s_boost_polls{0};
+static std::atomic<bool>       s_idle{false};
 static String                  s_group_target_uuid;
 static String                  s_group_op_target_uuid;
 static String                  s_favorite_uri;
@@ -145,12 +146,18 @@ void sonos::playback::update_group_uuid(const String& uuid) {
     xSemaphoreGive(s_mutex);
 }
 
+void sonos::playback::idle_mode(bool idle) {
+    s_idle.store(idle, std::memory_order_relaxed);
+    if (!idle) s_boost_polls.store(4, std::memory_order_relaxed);  // fast recovery on wake
+}
+
 uint32_t sonos::playback::poll_interval_ms() {
     uint8_t remaining = s_boost_polls.load(std::memory_order_relaxed);
     if (remaining > 0) {
         s_boost_polls.fetch_sub(1, std::memory_order_relaxed);
         return 500;
     }
+    if (s_idle.load(std::memory_order_relaxed)) return kIdlePollIntervalMs;
     return kPollIntervalMs;
 }
 

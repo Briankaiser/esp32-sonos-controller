@@ -175,6 +175,10 @@ static void lvgl_flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px
 
 // ── LVGL touch read callback ─────────────────────────────────────────────────
 
+// Set true by bsp::suppress_touch_until_release(); the callback reports RELEASED
+// until the finger physically lifts, consuming the idle-wake tap.
+static bool s_suppress_touch = false;
+
 static void lvgl_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     // CST816 register layout: [0x01]=gesture, [0x02]=touch count,
     //   [0x03]=YH+event, [0x04]=YL, [0x05]=XH+touch_id, [0x06]=XL
@@ -198,6 +202,12 @@ static void lvgl_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     uint8_t xh     = Wire.read();
     uint8_t xl     = Wire.read();
     if (count == 0) {
+        s_suppress_touch = false;  // finger lifted — resume normal reporting
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    if (s_suppress_touch) {
+        // Consuming the idle-wake tap: report released until the finger lifts
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
@@ -306,6 +316,10 @@ void bsp::input_init() {
 
 void bsp::backlight(uint8_t brightness) {
     ledcWrite(pins::BACKLIGHT, brightness);
+}
+
+void bsp::suppress_touch_until_release() {
+    s_suppress_touch = true;
 }
 
 bool bsp::pop_event(InputEvent& evt) {

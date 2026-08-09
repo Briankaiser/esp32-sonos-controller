@@ -6,6 +6,7 @@
 #include "../theme/accent.h"
 #include "../../app/sonos/art.h"
 #include "../../app/sonos/state.h"
+#include "../../bsp/bsp.h"
 #include <lvgl.h>
 
 // ── Static widget handles (UI task only) ──────────────────────────────────────
@@ -32,9 +33,20 @@ static uint32_t           s_favorites_version_built = 0;
 static lv_obj_t*          s_art_cont                = nullptr;
 static sonos::PlaybackState s_last;
 
+// ── Idle state ────────────────────────────────────────────────────────────────
+static uint32_t           s_idle_timer_start   = 0;
+static bool               s_is_idle            = false;
+static constexpr uint32_t kIdleTimeoutMs       = 5u * 60u * 1000u;
+
 // ── Interpolation timer (fires every 1 s on UI task) ─────────────────────────
 
 static void interp_tick(lv_timer_t* /*t*/) {
+    // Enter idle after kIdleTimeoutMs of non-Playing state
+    if (!s_is_idle && millis() - s_idle_timer_start >= kIdleTimeoutMs) {
+        s_is_idle = true;
+        sonos::playback::idle_mode(true);
+        bsp::backlight(0);
+    }
     if (s_last.transport_state != sonos::TransportState::Playing) return;
     if (s_last.duration_s == 0) return;
     uint32_t elapsed_s = (millis() - s_last.poll_timestamp_ms) / 1000u;
@@ -259,6 +271,8 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_text_color(loading_lbl, lv_color_hex(0xAAAAAA), 0);
     lv_obj_align(loading_lbl, LV_ALIGN_CENTER, 0, 0);
 
+    s_idle_timer_start = millis();
+
     return scr;
 }
 
@@ -478,6 +492,23 @@ void screens::now_playing_update_volume_arc(int volume_0_100) {
     lv_arc_set_value(s_volume_arc, v);
 }
 
+// ── Idle state interface ──────────────────────────────────────────────────────
+
+bool screens::now_playing_is_idle() {
+    return s_is_idle;
+}
+
+void screens::now_playing_wake_from_touch() {
+    if (s_is_idle) {
+        s_is_idle = false;
+        s_idle_timer_start = millis();
+        sonos::playback::idle_mode(false);
+        bsp::backlight(200);
+        // Consume the waking tap so it doesn't trigger a button/overlay
+        bsp::suppress_touch_until_release();
+    }
+}
+
 // ── now_playing_init_art ──────────────────────────────────────────────────────
 
 void screens::now_playing_init_art() {
@@ -490,6 +521,16 @@ void screens::now_playing_init_art() {
 // ── now_playing_update ────────────────────────────────────────────────────────
 
 void screens::now_playing_update(const sonos::PlaybackState& state) {
+    // Reset idle timer while playing; wake from idle when playback resumes
+    if (state.transport_state == sonos::TransportState::Playing) {
+        s_idle_timer_start = millis();
+        if (s_is_idle) {
+            s_is_idle = false;
+            sonos::playback::idle_mode(false);
+            bsp::backlight(200);
+        }
+    }
+
     // Dismiss loading overlay on first real state (one-shot, never reappears)
     if (!s_loading_dismissed && state.transport_state != sonos::TransportState::Unknown) {
         s_loading_dismissed = true;

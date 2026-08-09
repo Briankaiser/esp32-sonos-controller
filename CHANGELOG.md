@@ -13,6 +13,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Display turns off after 5 minutes of inactivity; wakes on playback resumption
+  or touch (the waking tap is consumed so it doesn't trigger a control). Background
+  polling reduces to 10 s while idle.
+  ([add-idle-screensaver](openspec/changes/add-idle-screensaver/proposal.md))
+
 - Interface is significantly more responsive: removed blocking debug logging from
   the touch path, tightened the render cadence, and moved Sonos commands to a
   dedicated high-priority task so taps no longer wait behind background polling.

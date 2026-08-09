@@ -8,7 +8,7 @@ Defines how concurrent work is partitioned across cores so the interface stays r
 
 ### Requirement: Interface Rendering Is Never Blocked By Input Or Output Work
 
-All interface rendering and widget mutation SHALL occur on a single dedicated task. That task SHALL NOT perform network requests, image decoding, filesystem access, or any operation that blocks on external input or output. Work of that kind SHALL run on separate tasks and deliver results to the rendering task by message passing.
+All interface rendering and widget mutation SHALL occur on a single dedicated task. That task SHALL NOT perform network requests, image decoding, filesystem access, blocking diagnostic output, or any operation that blocks on external input or output. Work of that kind SHALL run on separate tasks and deliver results to the rendering task by message passing. Diagnostic logging SHALL NOT be performed on the rendering task's input-read or render path in normal operation.
 
 #### Scenario: Network request during playback
 
@@ -27,6 +27,12 @@ All interface rendering and widget mutation SHALL occur on a single dedicated ta
 - **WHEN** a request to a speaker times out
 - **THEN** the interface remains responsive throughout
 - **AND** the failure is surfaced without stalling rendering
+
+#### Scenario: Touch input is not delayed by diagnostic logging
+
+- **WHEN** the user touches the screen repeatedly
+- **THEN** no diagnostic logging occurs inside the input-read or render path
+- **AND** touch events are sampled and delivered without being dropped
 
 ### Requirement: Sustained Frame Rate Budget
 
@@ -59,3 +65,24 @@ Interface draw buffers and cover-art buffers SHALL be allocated from external PS
 - **WHEN** an external RAM allocation for an interface buffer fails
 - **THEN** the failure is reported over the diagnostic serial output
 - **AND** the device does not silently render with a partial buffer
+
+### Requirement: User Commands Execute Independently of Background Polling
+
+User-initiated commands (transport, volume, mute, grouping, favorites) SHALL execute without waiting for an in-progress background state poll to complete. Commands SHALL be dispatched on a path that can preempt the polling path so that a command issued while a poll's network requests are in flight is still acted on within a short, bounded time.
+
+#### Scenario: Command issued during an active poll
+
+- **WHEN** the user issues a command while a background state poll is mid-flight
+- **THEN** the command is executed without waiting for the poll to finish
+- **AND** the command reaches the speaker within a short bounded time rather than after the full poll
+
+#### Scenario: Rapid successive commands
+
+- **WHEN** the user issues several commands in quick succession
+- **THEN** each command is dispatched promptly
+- **AND** none are dropped while a poll is in progress
+
+#### Scenario: State refresh follows a command
+
+- **WHEN** a command has been executed
+- **THEN** a background state refresh is triggered promptly so the display reflects the new state

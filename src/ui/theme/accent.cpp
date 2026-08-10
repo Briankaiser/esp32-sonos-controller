@@ -23,9 +23,9 @@ struct Binding {
     lv_style_selector_t selector;
 };
 
-static lv_color_t           s_current    = lv_color_hex(0x1DB954);
-static lv_color_t           s_anim_from  = lv_color_hex(0x1DB954);
-static lv_color_t           s_anim_to    = lv_color_hex(0x1DB954);
+static lv_color_t           s_current    = lv_color_hex(0xD4A843);
+static lv_color_t           s_anim_from  = lv_color_hex(0xD4A843);
+static lv_color_t           s_anim_to    = lv_color_hex(0xD4A843);
 struct ContrastBinding {
     lv_obj_t*            obj;
     lv_style_selector_t  selector;

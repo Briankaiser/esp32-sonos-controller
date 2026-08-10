@@ -11,7 +11,7 @@ struct ArtState {
     uint32_t   version = 0;
     String     uri;
 
-    ArtState() { accent = lv_color_hex(0x1DB954); }
+    ArtState() { accent = lv_color_hex(0xD4A843); }
 };
 
 namespace art {

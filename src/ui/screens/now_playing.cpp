@@ -115,7 +115,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_text_color(s_title_lbl, lv_color_hex(0xEEEEEE), 0);
     lv_obj_set_style_text_align(s_title_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_title_lbl, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_title_lbl, lv_pct(100));
+    lv_obj_set_size(s_title_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Display)));
 
     s_artist_lbl = lv_label_create(info);
     lv_label_set_text(s_artist_lbl, "");
@@ -123,7 +123,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_text_color(s_artist_lbl, lv_color_hex(0xAAAAAA), 0);
     lv_obj_set_style_text_align(s_artist_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_artist_lbl, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_artist_lbl, lv_pct(100));
+    lv_obj_set_size(s_artist_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Title)));
 
     s_album_lbl = lv_label_create(info);
     lv_label_set_text(s_album_lbl, "");
@@ -131,7 +131,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_text_color(s_album_lbl, lv_color_hex(0x777777), 0);
     lv_obj_set_style_text_align(s_album_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_album_lbl, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_album_lbl, lv_pct(100));
+    lv_obj_set_size(s_album_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Body)));
 
     // ── SLOT_TRANSPORT — prev / play-pause / next button row ─────────────────
     s_transport_cont = slot_container(scr, SLOT_TRANSPORT);
@@ -223,7 +223,7 @@ lv_obj_t* screens::now_playing_create() {
         lv_arc_set_rotation(s_volume_arc, 135);
         lv_arc_set_bg_angles(s_volume_arc, 0, 270);
         lv_arc_set_value(s_volume_arc, 50);
-        lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0xD4A843), LV_PART_INDICATOR);
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_MAIN);

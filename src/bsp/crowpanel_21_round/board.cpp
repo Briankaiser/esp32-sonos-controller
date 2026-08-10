@@ -211,10 +211,17 @@ static void lvgl_touch_cb(lv_indev_t* indev, lv_indev_data_t* data) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
-    data->state   = LV_INDEV_STATE_PRESSED;
     // CST816 X/Y axes are swapped relative to this display's orientation
-    data->point.x = static_cast<int32_t>(((yh & 0x0F) << 8) | yl);
-    data->point.y = static_cast<int32_t>(((xh & 0x0F) << 8) | xl);
+    int32_t x = static_cast<int32_t>(((yh & 0x0F) << 8) | yl);
+    int32_t y = static_cast<int32_t>(((xh & 0x0F) << 8) | xl);
+    // 0xFFF (4095) means no valid touch data — suppress rather than pass OOB coords to LVGL
+    if (x >= 480 || y >= 480) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    data->state   = LV_INDEV_STATE_PRESSED;
+    data->point.x = x;
+    data->point.y = y;
 }
 
 // ── Encoder ISR (GPIO CHANGE on pin A) ──────────────────────────────────────

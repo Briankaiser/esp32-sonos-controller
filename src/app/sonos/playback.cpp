@@ -11,7 +11,7 @@
 static SemaphoreHandle_t       s_mutex            = nullptr;
 static QueueHandle_t           s_cmd_queue        = nullptr;
 static sonos::PlaybackState    s_state;
-static std::atomic<int16_t>    s_pending_delta{0};
+static std::atomic<int16_t>    s_desired_volume{-1};  // -1 = none pending; 0-100 = optimistic desired
 static std::atomic<uint8_t>    s_boost_polls{0};
 static std::atomic<bool>       s_idle{false};
 static String                  s_group_target_uuid;
@@ -96,6 +96,8 @@ sonos::PlaybackState sonos::playback::snapshot() {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     PlaybackState copy = s_state;
     xSemaphoreGive(s_mutex);
+    int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
+    if (desired >= 0) copy.volume = (uint8_t)desired;
     return copy;
 }
 
@@ -116,13 +118,22 @@ void sonos::playback::enqueue_command(PlaybackCommand cmd) {
     if (xQueueSend(s_cmd_queue, &raw, 0) != pdTRUE) {
         Serial.println("[Playback] command queue full — dropped");
     }
-    // Wake the dedicated command task; it outranks the poll task so it drains now
-    if (s_cmd_task_handle) xTaskNotifyGive(s_cmd_task_handle);
+    if (s_cmd_task_handle) xTaskNotify(s_cmd_task_handle, kNotifyCommand, eSetBits);
 }
 
 void sonos::playback::enqueue_volume_delta(int16_t delta) {
-    s_pending_delta.fetch_add(delta, std::memory_order_relaxed);
-    if (s_cmd_task_handle) xTaskNotifyGive(s_cmd_task_handle);
+    // Accumulate from pending desired (rapid ticks) or confirmed volume (first tick)
+    int16_t base = s_desired_volume.load(std::memory_order_relaxed);
+    if (base < 0) {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        base = (int16_t)s_state.volume;
+        xSemaphoreGive(s_mutex);
+    }
+    int16_t desired = base + delta;
+    if (desired < 0)   desired = 0;
+    if (desired > 100) desired = 100;
+    s_desired_volume.store(desired, std::memory_order_relaxed);
+    if (s_cmd_task_handle) xTaskNotify(s_cmd_task_handle, kNotifyVolume, eSetBits);
 }
 
 void sonos::playback::set_group_target(const String& uuid) {
@@ -438,27 +449,26 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
         s_boost_polls.store(4, std::memory_order_relaxed);
     }
 
-    // Flush accumulated encoder volume delta as a single SetVolume call
-    int16_t delta = s_pending_delta.exchange(0, std::memory_order_relaxed);
-    if (delta != 0) {
-        PlaybackState cur = snapshot();
-        int new_vol = (int)cur.volume + delta;
-        if (new_vol < 0)   new_vol = 0;
-        if (new_vol > 100) new_vol = 100;
-        Serial.printf("[Playback] SetVolume %d\n", new_vol);
-        String vol_args =
-            String("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>") +
-            new_vol + "</DesiredVolume>";
-        String vol_resp = sonos::soap::call(
-            speaker.ip, speaker.port,
-            "/MediaRenderer/RenderingControl/Control",
-            "urn:schemas-upnp-org:service:RenderingControl:1",
-            "SetVolume", vol_args);
-        if (vol_resp.isEmpty()) {
-            Serial.printf("[Playback] SetVolume %d failed\n", new_vol);
-        }
-        s_boost_polls.store(4, std::memory_order_relaxed);
+}
+
+// ── flush_volume — send the current desired volume as a single SetVolume call ──
+
+void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
+    int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
+    if (desired < 0) return;
+    Serial.printf("[Playback] SetVolume %d\n", (int)desired);
+    String vol_args =
+        String("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>") +
+        (int)desired + "</DesiredVolume>";
+    String resp = sonos::soap::call(
+        speaker.ip, speaker.port,
+        "/MediaRenderer/RenderingControl/Control",
+        "urn:schemas-upnp-org:service:RenderingControl:1",
+        "SetVolume", vol_args);
+    if (resp.isEmpty()) {
+        Serial.printf("[Playback] SetVolume %d failed\n", (int)desired);
     }
+    s_boost_polls.store(4, std::memory_order_relaxed);
 }
 
 // ── poll (task 2.4) ───────────────────────────────────────────────────────────
@@ -509,7 +519,15 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
     static const char* kRCArgs = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
 
-    PlaybackState prev = snapshot();
+    // Read confirmed state directly (not via snapshot) so the volume fallback on
+    // GetVolume failure stays as the last confirmed value, not the optimistic desired.
+    PlaybackState prev;
+    {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        prev = s_state;
+        xSemaphoreGive(s_mutex);
+    }
+    bool    vol_ok = false;
     uint8_t volume = prev.volume;
     bool    muted  = prev.muted;
 
@@ -519,6 +537,7 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     } else {
         int v = extract_xml_text(vol_resp, "CurrentVolume").toInt();
         volume = (uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v);
+        vol_ok = true;
     }
 
     String mute_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetMute", kRCArgs);
@@ -526,6 +545,14 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
         Serial.println("[Playback] GetMute failed");
     } else {
         muted = (extract_xml_text(mute_resp, "CurrentMute") == "1");
+    }
+
+    // Once the speaker confirms our desired volume, retire the optimistic value
+    if (vol_ok) {
+        int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
+        if (desired >= 0 && (uint8_t)desired == volume) {
+            s_desired_volume.store(-1, std::memory_order_relaxed);
+        }
     }
 
     PlaybackState next;
@@ -552,18 +579,33 @@ void sonos::playback::poll_volume(const SpeakerInfo& speaker) {
     static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
     static const char* kRCArgs = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
 
-    PlaybackState prev = snapshot();
-    uint8_t volume = prev.volume;
-    bool    muted  = prev.muted;
+    // Read confirmed state directly (not via snapshot) for the same reason as poll()
+    bool    vol_ok = false;
+    uint8_t volume;
+    bool    muted;
+    {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        volume = s_state.volume;
+        muted  = s_state.muted;
+        xSemaphoreGive(s_mutex);
+    }
 
     String vol_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetVolume", kRCArgs);
     if (!vol_resp.isEmpty()) {
         int v = extract_xml_text(vol_resp, "CurrentVolume").toInt();
         volume = (uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v);
+        vol_ok = true;
     }
     String mute_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetMute", kRCArgs);
     if (!mute_resp.isEmpty()) {
         muted = (extract_xml_text(mute_resp, "CurrentMute") == "1");
+    }
+
+    if (vol_ok) {
+        int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
+        if (desired >= 0 && (uint8_t)desired == volume) {
+            s_desired_volume.store(-1, std::memory_order_relaxed);
+        }
     }
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);

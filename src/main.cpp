@@ -116,12 +116,37 @@ static void web_task(void* /*arg*/) {
 static void cmd_task(void* /*arg*/) {
     sonos::playback::set_cmd_notify_task(xTaskGetCurrentTaskHandle());
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        uint32_t bits = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &bits, portMAX_DELAY);
         SonosState st = sonos::state::snapshot();
-        if (st.home_room_idx >= 0 && st.home_room_idx < (int)st.speakers.size()) {
-            sonos::playback::drain_commands(st.speakers[st.home_room_idx]);
-            sonos::playback::notify_poll_task();  // trigger boost re-poll
+        if (st.home_room_idx < 0 || st.home_room_idx >= (int)st.speakers.size()) continue;
+        const SpeakerInfo& speaker = st.speakers[st.home_room_idx];
+        bool did_work = false;
+
+        // Transport / grouping / favorites — drain immediately, no debounce
+        if (bits & sonos::playback::kNotifyCommand) {
+            sonos::playback::drain_commands(speaker);
+            did_work = true;
         }
+
+        // Volume — 80ms quiet-window debounce; 150ms cap so audio tracks during sustained spin
+        if (bits & sonos::playback::kNotifyVolume) {
+            uint32_t spin_start = millis();
+            uint32_t extra;
+            while (xTaskNotifyWait(0, UINT32_MAX, &extra, pdMS_TO_TICKS(80)) == pdTRUE) {
+                bits |= extra;
+                if (!(extra & sonos::playback::kNotifyVolume)) break;
+                if (millis() - spin_start >= 150) break;
+            }
+            // Handle any command that arrived during the debounce window
+            if (bits & sonos::playback::kNotifyCommand) {
+                sonos::playback::drain_commands(speaker);
+            }
+            sonos::playback::flush_volume(speaker);
+            did_work = true;
+        }
+
+        if (did_work) sonos::playback::notify_poll_task();
     }
 }
 
@@ -163,6 +188,9 @@ static void sonos_task(void* /*arg*/) {
                     }
                     sonos::playback::poll(*poll_target);
                     // Volume: always home room, but only every 4th cycle (saves ~200ms/cycle)
+                    // TODO(cleanup): skip poll_volume when poll_target == &hr (standalone) —
+                    //   poll() already called GetVolume on the same speaker that cycle, making
+                    //   this a redundant 2-SOAP-call round-trip; only needed for group members.
                     if (++s_volume_skip >= 4) {
                         s_volume_skip = 0;
                         const SpeakerInfo* vol_src = (poll_target != &hr) ? &hr : poll_target;
@@ -236,10 +264,9 @@ static void ui_task(void* /*arg*/) {
         while (bsp::pop_event(evt)) {
             switch (evt.intent) {
                 case bsp::Intent::VolumeDelta: {
-                    sonos::playback::enqueue_volume_delta(-evt.value);  // negate: CW = up
-                    // Immediate arc feedback: compute expected volume from current state + delta
-                    sonos::PlaybackState pb_vol = sonos::playback::snapshot();
-                    screens::now_playing_update_volume_arc((int)pb_vol.volume - evt.value);
+                    sonos::playback::enqueue_volume_delta(-evt.value);  // negate: CW = up; updates s_desired_volume
+                    sonos::PlaybackState pb = sonos::playback::snapshot();  // returns desired volume
+                    screens::now_playing_update_volume_arc((int)pb.volume);
                     break;
                 }
                 case bsp::Intent::EncoderButtonDown:

@@ -46,10 +46,14 @@ namespace playback {
     constexpr uint32_t kPollIntervalMs     = 2000;
     constexpr uint32_t kIdlePollIntervalMs = 10000;  // reduced polling while display is idle
 
+    // cmd_task notification bits — use xTaskNotify(..., bit, eSetBits)
+    constexpr uint32_t kNotifyCommand = 1u;  // transport / grouping / favorites command queued
+    constexpr uint32_t kNotifyVolume  = 2u;  // volume delta received (debounced before sending)
+
     void          init();
     void          idle_mode(bool idle);                            // UI task: enter/exit idle poll cadence
     void          update(const PlaybackState& next);          // sonos task only
-    PlaybackState snapshot();                                  // any task, copies under mutex
+    PlaybackState snapshot();                                  // any task; overlays optimistic desired volume
     void          enqueue_command(PlaybackCommand cmd);        // UI task — wakes cmd_task
     void          enqueue_volume_delta(int16_t delta);        // UI task — wakes cmd_task
     void          set_cmd_notify_task(void* task_handle);     // call from cmd_task at startup
@@ -59,7 +63,8 @@ namespace playback {
     void          set_group_op_target(const String& member_uuid);    // before AddGroupMember/RemoveGroupMember
     void          set_favorite(const String& uri, const String& metadata, bool meta_ready); // before PlayFavorite
     void          update_group_uuid(const String& uuid);           // sonos task
-    void          drain_commands(const SpeakerInfo& speaker);      // sonos task
+    void          drain_commands(const SpeakerInfo& speaker);      // cmd_task — transport/grouping/favorites only
+    void          flush_volume(const SpeakerInfo& speaker);        // cmd_task — send pending desired volume
     void          poll(const SpeakerInfo& speaker);                // sonos task — fetches transport + volume
     void          poll_volume(const SpeakerInfo& speaker);         // sonos task — fetches volume/mute only
     uint32_t      poll_interval_ms();                              // sonos task: 500ms if boost active, else kPollIntervalMs

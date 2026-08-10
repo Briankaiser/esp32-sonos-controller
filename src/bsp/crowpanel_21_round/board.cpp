@@ -237,7 +237,7 @@ static uint32_t lvgl_tick_ms() { return static_cast<uint32_t>(millis()); }
 
 void bsp::init() {
     // I2C bus
-    Wire.begin(pins::kSda, pins::kScl);
+    Wire.begin(pins::kSda, pins::kScl, 400000);
 
     // PCF8574: robtillaart library uses write()/read(), no pinMode().
     // All pins start high (input mode via pull-up resistors on the chip).

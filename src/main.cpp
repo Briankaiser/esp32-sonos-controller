@@ -304,9 +304,9 @@ static void ui_task(void* /*arg*/) {
             }
         }
 
-        // Yield briefly. Cap at 8 ms so input is drained frequently (~120 Hz loop
-        // ceiling); LVGL still governs actual render cadence via LV_DEF_REFR_PERIOD.
-        uint32_t delay_ms = (next_ms < 1) ? 1 : (next_ms > 8 ? 8 : next_ms);
+        // Yield up to one LVGL refresh period. Encoder/button events are ISR-driven
+        // so nothing is missed; LVGL governs render cadence via LV_DEF_REFR_PERIOD.
+        uint32_t delay_ms = (next_ms < 1) ? 1 : (next_ms > 16 ? 16 : next_ms);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }

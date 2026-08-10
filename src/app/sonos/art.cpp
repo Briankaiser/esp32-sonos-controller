@@ -61,7 +61,7 @@ static lv_color_t extract_dominant(const uint8_t* pixels, uint16_t w, uint16_t h
         }
     }
 
-    if (count < 100) return lv_color_hex(0x1DB954);
+    if (count < 100) return lv_color_hex(0xD4A843);
 
     uint8_t avg_r = (uint8_t)(sum_r / count);
     uint8_t avg_g = (uint8_t)(sum_g / count);
@@ -79,6 +79,25 @@ static lv_color_t extract_dominant(const uint8_t* pixels, uint16_t w, uint16_t h
 }
 
 // ── HTTP fetch ────────────────────────────────────────────────────────────────
+
+// Reads one '\n'-terminated line, yielding delay(1) when no data is available.
+// readStringUntil routes through Stream::timedRead which busy-spins without
+// yielding to FreeRTOS — this replacement prevents the IDLE watchdog from firing.
+static String read_line(WiFiClient& client, uint32_t deadline) {
+    String line;
+    while (millis() < deadline) {
+        if (client.available()) {
+            char c = (char)client.read();
+            if (c == '\n') break;
+            if (c != '\r') line += c;
+        } else if (client.connected()) {
+            delay(1);
+        } else {
+            break;
+        }
+    }
+    return line;
+}
 
 static size_t fetch_jpeg(const String& url,
                          const String& speaker_ip,
@@ -112,11 +131,10 @@ static size_t fetch_jpeg(const String& url,
 
     uint32_t deadline = millis() + 10000;
     while (!client.available() && millis() < deadline) delay(5);
-    client.readStringUntil('\n');  // status line
+    read_line(client, deadline);  // status line
     bool is_chunked = false;
     while (client.connected() && millis() < deadline) {
-        String line = client.readStringUntil('\n');
-        line.trim();
+        String line = read_line(client, deadline);
         if (line.isEmpty()) break;
         if (line.indexOf("chunked") >= 0) is_chunked = true;
     }
@@ -124,24 +142,46 @@ static size_t fetch_jpeg(const String& url,
     size_t fetched = 0;
     if (is_chunked) {
         while ((client.connected() || client.available()) && millis() < deadline) {
-            String size_line = client.readStringUntil('\n');
-            size_line.trim();
+            String size_line = read_line(client, deadline);
             if (size_line.isEmpty()) continue;
             uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
             if (chunk_size == 0) break;
+            // Read chunk body in bursts: readBytes of currently-available data,
+            // then yield — prevents starving IDLE when the data stream is continuous.
             for (uint32_t i = 0; i < chunk_size && millis() < deadline; ) {
-                if (client.available() && fetched < art::kArtJpegBufBytes) {
-                    s_jpeg_buf[fetched++] = (uint8_t)client.read();
-                    i++;
-                } else { delay(1); }
+                int av = client.available();
+                if (av > 0 && fetched < art::kArtJpegBufBytes) {
+                    size_t to_read = (size_t)av;
+                    if (to_read > chunk_size - i)             to_read = chunk_size - i;
+                    if (to_read > art::kArtJpegBufBytes - fetched)
+                        to_read = art::kArtJpegBufBytes - fetched;
+                    size_t got = (size_t)client.readBytes(
+                        (char*)(s_jpeg_buf + fetched), to_read);
+                    fetched += got;
+                    i      += (uint32_t)got;
+                } else if (fetched >= art::kArtJpegBufBytes) {
+                    break;
+                } else if (client.connected()) {
+                    delay(1);
+                    continue;
+                } else {
+                    break;
+                }
+                delay(1);  // yield after every burst
             }
-            client.readStringUntil('\n');
+            read_line(client, deadline);  // trailing CRLF after chunk data
             if (fetched >= art::kArtJpegBufBytes) break;
         }
     } else {
         while ((client.connected() || client.available()) && millis() < deadline) {
-            while (client.available() && fetched < art::kArtJpegBufBytes)
-                s_jpeg_buf[fetched++] = (uint8_t)client.read();
+            int av = client.available();
+            if (av > 0 && fetched < art::kArtJpegBufBytes) {
+                size_t to_read = (size_t)av;
+                if (to_read > art::kArtJpegBufBytes - fetched)
+                    to_read = art::kArtJpegBufBytes - fetched;
+                fetched += (size_t)client.readBytes(
+                    (char*)(s_jpeg_buf + fetched), to_read);
+            }
             if (fetched >= art::kArtJpegBufBytes) break;
             delay(1);
         }

@@ -133,7 +133,7 @@ static Arduino_ESP32RGBPanel s_rgb_bus(
     1, 10, 4, 24,   // hsync: polarity, front_porch, pulse_width, back_porch
     1, 10, 4, 24,   // vsync: polarity, front_porch, pulse_width, back_porch
     0,              // pclk_active_neg
-    10000000,       // prefer_speed (Hz)
+    11000000,       // prefer_speed (Hz) → driver rounds to 11.4 MHz (80÷7); 16 MHz caused flicker
     false,          // useBigEndian
     0,              // de_idle_high
     0,              // pclk_idle_high

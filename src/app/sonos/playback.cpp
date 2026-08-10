@@ -1,5 +1,6 @@
 #include "playback.h"
 #include "soap.h"
+#include "../../services/prefs.h"
 
 #include <Arduino.h>
 #include <atomic>
@@ -468,6 +469,38 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
     if (resp.isEmpty()) {
         Serial.printf("[Playback] SetVolume %d failed\n", (int)desired);
     }
+
+    // Whole-group volume: apply to all zone group members when enabled
+    if (prefs::group_volume_mode()) {
+        SonosState st = sonos::state::snapshot();
+        for (const auto& grp : st.groups) {
+            bool home_in_group = (grp.coordinator_uuid == speaker.uuid);
+            if (!home_in_group) {
+                for (const auto& m : grp.member_uuids) {
+                    if (m == speaker.uuid) { home_in_group = true; break; }
+                }
+            }
+            if (!home_in_group) continue;
+            auto apply_member = [&](const String& uuid) {
+                if (uuid == speaker.uuid) return;
+                for (const auto& sp : st.speakers) {
+                    if (sp.uuid != uuid) continue;
+                    String r = sonos::soap::call(sp.ip, sp.port,
+                        "/MediaRenderer/RenderingControl/Control",
+                        "urn:schemas-upnp-org:service:RenderingControl:1",
+                        "SetVolume", vol_args);
+                    if (r.isEmpty())
+                        Serial.printf("[Playback] SetVolume %d failed for %s\n",
+                            (int)desired, uuid.c_str());
+                    break;
+                }
+            };
+            apply_member(grp.coordinator_uuid);
+            for (const auto& m : grp.member_uuids) apply_member(m);
+            break;  // home room belongs to at most one group
+        }
+    }
+
     s_boost_polls.store(4, std::memory_order_relaxed);
 }
 

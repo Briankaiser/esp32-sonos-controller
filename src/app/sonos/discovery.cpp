@@ -38,7 +38,15 @@ static String html_decode(const String& s) {
     r.replace("&lt;",   "<");
     r.replace("&gt;",   ">");
     r.replace("&quot;", "\"");
+    r.replace("&apos;", "'");
+    r.replace("&#39;",  "'");
+    r.replace("&#x27;", "'");
     r.replace("&amp;",  "&");  // must be last
+    // Normalize Unicode smart quotes to ASCII (Montserrat font lacks U+2018/U+2019)
+    r.replace("\xe2\x80\x98", "'");  // U+2018 LEFT SINGLE QUOTATION MARK
+    r.replace("\xe2\x80\x99", "'");  // U+2019 RIGHT SINGLE QUOTATION MARK
+    r.replace("\xe2\x80\x9c", "\""); // U+201C LEFT DOUBLE QUOTATION MARK
+    r.replace("\xe2\x80\x9d", "\""); // U+201D RIGHT DOUBLE QUOTATION MARK
     return r;
 }
 
@@ -201,7 +209,17 @@ static bool fetch_speaker_info(const String& location, SpeakerInfo& out) {
         return false;
     }
 
-    String fname = xml_field(xml, "friendlyName");
+    String fname = html_decode(xml_field(xml, "friendlyName"));
+
+    // Extract model from "Room - Model - RINCON_UUID" format; strip "Sonos " prefix
+    String model;
+    int sep = fname.indexOf(" - ");
+    if (sep >= 0) {
+        model = fname.substring(sep + 3);
+        int sep2 = model.indexOf(" - ");  // trim trailing " - RINCON_UUID" if present
+        if (sep2 >= 0) model = model.substring(0, sep2);
+        if (model.startsWith("Sonos ")) model = model.substring(6);
+    }
 
     // Prefer URLBase for IP/port; fall back to LOCATION URL
     String base = xml_field(xml, "URLBase");
@@ -217,6 +235,7 @@ static bool fetch_speaker_info(const String& location, SpeakerInfo& out) {
 
     out.uuid             = udn;
     out.friendly_name    = fname;
+    out.model_name       = model;
     out.ip               = ip;
     out.port             = port;
     out.control_url_base = "";  // Sonos uses well-known service paths
@@ -263,7 +282,7 @@ static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
             if (me < 0) break;
             String mem_xml   = grp_xml.substring(ms, me + 1);
             String muuid     = xml_attr(mem_xml, "UUID");
-            String zone_name = xml_attr(mem_xml, "ZoneName");
+            String zone_name = html_decode(xml_attr(mem_xml, "ZoneName"));
             if (!muuid.isEmpty()) {
                 grp.member_uuids.push_back(muuid);
                 if (!zone_name.isEmpty()) {

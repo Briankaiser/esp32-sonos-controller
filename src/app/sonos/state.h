@@ -6,7 +6,8 @@
 
 struct SpeakerInfo {
     String   uuid;
-    String   friendly_name;
+    String   friendly_name;  // room name (ZoneName from topology, HTML-decoded)
+    String   model_name;     // device model, e.g. "Roam 2", "Amp" (from friendlyName, "Sonos " stripped)
     String   ip;
     String   control_url_base;
     uint16_t port = 0;

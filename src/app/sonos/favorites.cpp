@@ -17,7 +17,13 @@ static String html_decode_fav(const String& s) {
     r.replace("&gt;",   ">");
     r.replace("&quot;", "\"");
     r.replace("&apos;", "'");
-    r.replace("&amp;",  "&");
+    r.replace("&#39;",  "'");
+    r.replace("&#x27;", "'");
+    r.replace("&amp;",  "&");  // must be last
+    r.replace("\xe2\x80\x98", "'");   // U+2018 LEFT SINGLE QUOTATION MARK
+    r.replace("\xe2\x80\x99", "'");   // U+2019 RIGHT SINGLE QUOTATION MARK
+    r.replace("\xe2\x80\x9c", "\"");  // U+201C LEFT DOUBLE QUOTATION MARK
+    r.replace("\xe2\x80\x9d", "\"");  // U+201D RIGHT DOUBLE QUOTATION MARK
     return r;
 }
 

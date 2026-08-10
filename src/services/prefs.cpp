@@ -6,6 +6,7 @@ namespace {
     constexpr const char* kSsid  = "wifi_ssid";
     constexpr const char* kPass  = "wifi_pass";
     constexpr const char* kRoom  = "home_room";
+    constexpr const char* kGvol  = "grp_vol";
     constexpr const char* kLat   = "lat";
     constexpr const char* kLon   = "lon";
     constexpr const char* kOta   = "ota_pass";
@@ -66,6 +67,22 @@ void prefs::set_home_room(const String& uuid) {
     p.putString(kRoom, uuid);
     p.end();
     Serial.printf("[Prefs] home_room set to %s\n", uuid.c_str());
+}
+
+bool prefs::group_volume_mode() {
+    Preferences p;
+    p.begin(kNs, true);
+    bool v = p.getBool(kGvol, false);
+    p.end();
+    return v;
+}
+
+void prefs::set_group_volume_mode(bool whole_group) {
+    Preferences p;
+    p.begin(kNs, false);
+    p.putBool(kGvol, whole_group);
+    p.end();
+    Serial.printf("[Prefs] group_volume_mode set to %s\n", whole_group ? "whole_group" : "home_room_only");
 }
 
 String prefs::ota_pass() {

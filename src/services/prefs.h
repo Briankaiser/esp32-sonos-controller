@@ -13,6 +13,8 @@ String wifi_ssid();
 String wifi_pass();
 String home_room();
 void   set_home_room(const String& uuid);
+bool   group_volume_mode();                   // false = home room only (default); true = whole group
+void   set_group_volume_mode(bool whole_group);
 String lat();
 String lon();
 String ota_pass();

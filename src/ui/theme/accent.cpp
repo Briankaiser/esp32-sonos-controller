@@ -26,8 +26,19 @@ struct Binding {
 static lv_color_t           s_current    = lv_color_hex(0x1DB954);
 static lv_color_t           s_anim_from  = lv_color_hex(0x1DB954);
 static lv_color_t           s_anim_to    = lv_color_hex(0x1DB954);
-static std::vector<Binding> s_bindings;
-static constexpr uint8_t    kMinLumDiff  = 48;
+struct ContrastBinding {
+    lv_obj_t*            obj;
+    lv_style_selector_t  selector;
+};
+
+static std::vector<Binding>         s_bindings;
+static std::vector<ContrastBinding> s_contrast_bindings;
+static constexpr uint8_t            kMinLumDiff  = 48;
+
+static lv_color_t contrast_for(lv_color_t c) {
+    int32_t lum = (299 * c.red + 587 * c.green + 114 * c.blue) / 1000;
+    return lum > 128 ? lv_color_hex(0x000000) : lv_color_hex(0xFFFFFF);
+}
 
 // Applies interpolated colour to every bound object.
 // anim_value runs 0 → 255 (LV_OPA_TRANSP → LV_OPA_COVER).
@@ -36,6 +47,11 @@ static void anim_exec(void* /*var*/, int32_t anim_value) {
     for (const auto& b : s_bindings) {
         b.set_fn(b.obj, c, b.selector);
         lv_obj_invalidate(b.obj);
+    }
+    lv_color_t contrast = contrast_for(c);
+    for (const auto& cb : s_contrast_bindings) {
+        lv_obj_set_style_bg_color(cb.obj, contrast, cb.selector);
+        lv_obj_invalidate(cb.obj);
     }
 }
 
@@ -52,6 +68,11 @@ void accent::set(lv_color_t color, uint32_t duration_ms) {
         for (const auto& b : s_bindings) {
             b.set_fn(b.obj, color, b.selector);
             lv_obj_invalidate(b.obj);
+        }
+        lv_color_t contrast = contrast_for(color);
+        for (const auto& cb : s_contrast_bindings) {
+            lv_obj_set_style_bg_color(cb.obj, contrast, cb.selector);
+            lv_obj_invalidate(cb.obj);
         }
         return;
     }
@@ -103,6 +124,21 @@ void accent::bind(lv_obj_t* obj, lv_style_prop_t prop) {
 
     s_bindings.push_back({obj, fn, sel});
     fn(obj, s_current, sel);
+}
+
+void accent::bind_indicator(lv_obj_t* obj) {
+    StyleColorSetter fn = [](lv_obj_t* o, lv_color_t c, lv_style_selector_t s) {
+        lv_obj_set_style_bg_color(o, c, s);
+    };
+    s_bindings.push_back({obj, fn, LV_PART_INDICATOR});
+    fn(obj, s_current, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_INDICATOR);
+}
+
+void accent::bind_contrast_track(lv_obj_t* obj) {
+    s_contrast_bindings.push_back({obj, LV_PART_MAIN});
+    lv_obj_set_style_bg_color(obj, contrast_for(s_current), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
 }
 
 lv_color_t accent::adjusted_for_legibility(lv_color_t ac, lv_color_t bg) {

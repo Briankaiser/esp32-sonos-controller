@@ -209,10 +209,8 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_size(s_progress_bar, lv_pct(100), lv_pct(100));
     lv_bar_set_range(s_progress_bar, 0, 100);
     lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x444444), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_progress_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x1DB954), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_progress_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    accent::bind_indicator(s_progress_bar);      // fill tracks accent color
+    accent::bind_contrast_track(s_progress_bar); // track is white/black for contrast
 
     // ── SLOT_VOLUME_ARC — visual placeholder (no command wiring until add-encoder-volume) ──
     lv_obj_t* vol_cont = layout_container(scr, SLOT_VOLUME_ARC);
@@ -512,10 +510,9 @@ void screens::now_playing_wake_from_touch() {
 // ── now_playing_init_art ──────────────────────────────────────────────────────
 
 void screens::now_playing_init_art() {
-    // Bind progress bar and volume arc to the accent token so set()/update()
-    // drives their indicator colours automatically.
-    if (s_progress_bar) accent::bind(s_progress_bar, LV_STYLE_BG_COLOR);
-    if (s_volume_arc)   accent::bind(s_volume_arc,   LV_STYLE_ARC_COLOR);
+    // Bind volume arc indicator to the accent token.
+    // Progress bar bindings (indicator + contrast track) are set up in now_playing_create().
+    if (s_volume_arc) accent::bind(s_volume_arc, LV_STYLE_ARC_COLOR);
 }
 
 // ── now_playing_update ────────────────────────────────────────────────────────

@@ -163,11 +163,22 @@ static void sonos_task(void* /*arg*/) {
     // Register this task as the boost-repoll target; cmd_task notifies us after a command
     sonos::playback::set_poll_notify_task(xTaskGetCurrentTaskHandle());
 
-    uint8_t s_volume_skip    = 0;
-    bool    s_favorites_done = false;
+    uint8_t  s_volume_skip      = 0;
+    uint32_t s_last_heap_log_ms = 0;
+    bool     s_favorites_loaded = false;  // latches once fetch succeeds — avoids
+                                           // a FavoritesState deep-copy every poll
 
     for (;;) {
         sonos::discovery::run_cycle();
+
+        // Heap observability for long-unattended runs: logging only, never acts on
+        // this — a slow leak should be diagnosable from serial history, not papered
+        // over by a self-triggered reboot.
+        if (millis() - s_last_heap_log_ms >= 60000) {
+            s_last_heap_log_ms = millis();
+            Serial.printf("[Heap] free=%u min_free=%u\n",
+                          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
+        }
         SonosState st = sonos::state::snapshot();
         uint32_t cycle_start_ms = millis();
         while (millis() - cycle_start_ms < sonos::discovery::kDiscoveryIntervalMs) {
@@ -201,10 +212,15 @@ static void sonos_task(void* /*arg*/) {
                     }
                 }
 
-                // Fetch favorites once after first successful poll
-                if (!s_favorites_done) {
-                    s_favorites_done = true;
+                // Fetch favorites after each successful poll until it succeeds once.
+                // Retrying on every cycle (instead of a fire-once flag set before the
+                // call) means a failed first attempt — e.g. a transient hiccup during
+                // boot — doesn't abandon favorites permanently. The local latch avoids
+                // re-checking favorites::snapshot() (a full FavoritesState deep-copy)
+                // on every ~2s poll for the rest of the device's uptime once loaded.
+                if (!s_favorites_loaded) {
                     favorites::fetch(hr);
+                    s_favorites_loaded = favorites::snapshot().fetched;
                 }
 
                 // Signal art_task when URI changes — art_task runs at lower priority
@@ -365,6 +381,13 @@ void setup() {
     }
     if (WiFi.status() == WL_CONNECTED) {
         s_wifi_ok = true;
+        // The boot-race that setAutoReconnect(false) guarded against is over — the
+        // initial WiFi.begin() has already completed. Re-enable it so the IDF
+        // supplicant automatically recovers from AP reboots, roaming, and other
+        // drops for the remaining weeks/months of uptime. discovery.cpp adds a
+        // throttled WiFi.reconnect() backstop for disconnect reasons auto-reconnect
+        // doesn't cover.
+        WiFi.setAutoReconnect(true);
         Serial.printf("[WiFi] connected, IP: %s\n", WiFi.localIP().toString().c_str());
     } else {
         Serial.println("[WiFi] connection failed — web services unavailable");

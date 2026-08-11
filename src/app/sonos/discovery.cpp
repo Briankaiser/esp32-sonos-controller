@@ -50,6 +50,35 @@ static String html_decode(const String& s) {
     return r;
 }
 
+// Wrap-safe deadline check — millis() < deadline inverts at the 32-bit rollover
+// (~49.7 days uptime), which would make every network read return instantly
+// empty for the ~1 minute it takes millis() to cross back past `deadline`.
+static inline bool time_before(uint32_t deadline) {
+    return (int32_t)(millis() - deadline) < 0;
+}
+
+// Read one '\n'-terminated line, yielding while waiting for data. Replaces
+// Stream::readStringUntil, which busy-spins in Stream::timedRead with no task
+// yield and can starve the IDLE task (→ watchdog) — see soap.cpp for the same
+// fix applied to SOAP calls. This function runs once per discovered speaker on
+// every discovery cycle, so a single slow/hanging device description response
+// here was the most likely real-world source of an unattended reboot.
+static String read_line(WiFiClient& client, uint32_t deadline) {
+    String line;
+    while (time_before(deadline)) {
+        if (client.available()) {
+            char c = (char)client.read();
+            if (c == '\n') break;
+            if (c != '\r') line += c;
+        } else if (client.connected()) {
+            delay(1);
+        } else {
+            break;
+        }
+    }
+    return line;
+}
+
 // Parse "http://host:port/path" → fills ip, port, path_out.
 // Returns false if the URL cannot be parsed.
 static bool parse_url(const String& url,
@@ -102,8 +131,8 @@ static void ssdp_search(std::vector<String>& locations) {
     uint32_t deadline   = millis() + 5000;
     uint32_t next_send  = millis() + 1500;
 
-    while (millis() < deadline) {
-        if (millis() >= next_send) {
+    while (time_before(deadline)) {
+        if (!time_before(next_send)) {
             send_msearch();
             next_send += 1500;
         }
@@ -158,36 +187,55 @@ static bool fetch_speaker_info(const String& location, SpeakerInfo& out) {
 
     // Read status line and headers; detect chunked transfer encoding
     uint32_t deadline = millis() + 8000;
-    while (!client.available() && millis() < deadline) delay(10);
-    client.readStringUntil('\n');  // status line
+    read_line(client, deadline);  // status line
 
     bool is_chunked = false;
-    while (client.connected() && millis() < deadline) {
-        String line = client.readStringUntil('\n');
+    while (client.connected() && time_before(deadline)) {
+        String line = read_line(client, deadline);
         line.trim();
         if (line.isEmpty()) break;  // end of headers
         if (line.indexOf("chunked") >= 0) is_chunked = true;
     }
 
-    // Read and decode body
+    // Read and decode body. Bulk readBytes (instead of appending one char at a
+    // time) avoids the repeated small String reallocations that fragment the
+    // heap over long uptime — the device description can be a few KB.
     String xml = "";
+    char   buf[512];
     if (is_chunked) {
-        while ((client.connected() || client.available()) && millis() < deadline) {
-            String size_line = client.readStringUntil('\n');
+        while ((client.connected() || client.available()) && time_before(deadline)) {
+            String size_line = read_line(client, deadline);
             size_line.trim();
             if (size_line.isEmpty()) continue;
             uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
             if (chunk_size == 0) break;
-            for (uint32_t i = 0; i < chunk_size && millis() < deadline; ) {
-                if (client.available()) { xml += (char)client.read(); i++; }
-                else delay(1);
+            for (uint32_t i = 0; i < chunk_size && time_before(deadline); ) {
+                int av = client.available();
+                if (av > 0) {
+                    size_t want = chunk_size - i;
+                    if (want > sizeof(buf)) want = sizeof(buf);
+                    if ((size_t)av < want) want = (size_t)av;
+                    size_t got = client.readBytes(buf, want);
+                    xml.concat(buf, got);
+                    i += (uint32_t)got;
+                } else if (client.connected()) {
+                    delay(1);
+                } else {
+                    break;
+                }
             }
-            client.readStringUntil('\n');  // trailing CRLF after chunk data
+            read_line(client, deadline);  // trailing CRLF after chunk data
         }
     } else {
-        while ((client.connected() || client.available()) && millis() < deadline) {
-            while (client.available()) xml += (char)client.read();
-            delay(1);
+        while ((client.connected() || client.available()) && time_before(deadline)) {
+            int av = client.available();
+            if (av > 0) {
+                size_t want = (size_t)av > sizeof(buf) ? sizeof(buf) : (size_t)av;
+                size_t got = client.readBytes(buf, want);
+                xml.concat(buf, got);
+            } else {
+                delay(1);
+            }
         }
     }
     client.stop();
@@ -306,7 +354,12 @@ static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
 
 void sonos::discovery::run_cycle() {
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[Sonos] WiFi not connected — skipping discovery");
+        // Backstop for disconnect reasons the IDF's own auto-reconnect (enabled in
+        // main.cpp after the initial connect) doesn't recover from on its own.
+        // run_cycle() is only called once per kDiscoveryIntervalMs (2 min) by
+        // sonos_task, which already throttles this — no extra rate limiting needed.
+        Serial.println("[Sonos] WiFi not connected — attempting reconnect");
+        WiFi.reconnect();
         return;
     }
 

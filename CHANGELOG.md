@@ -11,6 +11,17 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ## [Unreleased]
 
+### Fixed
+
+- Long-unattended-operation hardening pass: WiFi now automatically reconnects
+  after a drop (previously required a manual power cycle); Sonos Favorites
+  retry until they load successfully instead of giving up permanently after
+  one failed attempt at boot; a per-speaker memory leak in the Settings room
+  picker and group-management overlays is fixed (every open leaked one
+  allocation per speaker not clicked); network reads no longer risk a
+  watchdog reboot on a slow device response; and free-heap is logged
+  periodically to serial for diagnosing any future leak over a long soak.
+
 ### Added
 
 - Rotary encoder now navigates modal overlays (favorites, settings, grouping):

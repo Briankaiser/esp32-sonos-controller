@@ -97,6 +97,16 @@ static void settings_open_room_picker(lv_event_t*) {
             String* uuid_copy = new String(sp.uuid);
             lv_obj_set_user_data(btn, uuid_copy);
 
+            // Ownership: this button always owns its String* until LVGL destroys
+            // the widget, whether that happens via the click handler below or via
+            // lv_obj_delete(s_picker) from the tap-outside/Cancel paths. Freeing
+            // unconditionally here (rather than only on click) is what closes the
+            // leak — every button not clicked previously leaked its String forever.
+            lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+                lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
+                delete static_cast<String*>(lv_obj_get_user_data(b));
+            }, LV_EVENT_DELETE, nullptr);
+
             lv_obj_add_event_cb(btn, [](lv_event_t* e) {
                 lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
                 String* uuid = static_cast<String*>(lv_obj_get_user_data(b));
@@ -114,8 +124,6 @@ static void settings_open_room_picker(lv_event_t*) {
                         lv_obj_t* lbl = lv_obj_get_child(s_room_btn, 0);
                         if (lbl) lv_label_set_text(lbl, new_label.c_str());
                     }
-                    delete uuid;
-                    lv_obj_set_user_data(b, nullptr);
                 }
                 if (s_picker) { lv_obj_delete(s_picker); s_picker = nullptr; }
                 nav::clear_list();
@@ -233,6 +241,18 @@ static void settings_open_group_overlay(lv_event_t*) {
         if (lbl) { lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT); lv_obj_set_width(lbl, lv_pct(85)); }
         lv_obj_set_user_data(btn, data);
 
+        // Ownership: this button always owns its BtnData* until LVGL destroys the
+        // widget, whether that happens via the click handler below or via
+        // lv_obj_delete(s_group_overlay) from tap-outside/Go-Solo/another button's
+        // click. Freeing unconditionally here (rather than only on click) is what
+        // closes the leak — every button not clicked previously leaked its BtnData
+        // forever, and with up to a dozen-plus discovered speakers this adds up
+        // fast over weeks of normal Settings use.
+        lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+            lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
+            delete static_cast<BtnData*>(lv_obj_get_user_data(b));
+        }, LV_EVENT_DELETE, nullptr);
+
         lv_obj_add_event_cb(btn, [](lv_event_t* e) {
             lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
             BtnData* d = static_cast<BtnData*>(lv_obj_get_user_data(b));
@@ -243,8 +263,6 @@ static void settings_open_group_overlay(lv_event_t*) {
                 } else {
                     sonos::playback::enqueue_command(sonos::PlaybackCommand::AddGroupMember);
                 }
-                delete d;
-                lv_obj_set_user_data(b, nullptr);
             }
             if (s_group_overlay) { lv_obj_delete(s_group_overlay); s_group_overlay = nullptr; }
             nav::clear_list();

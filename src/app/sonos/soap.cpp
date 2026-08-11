@@ -14,13 +14,20 @@ void sonos::soap::init() {
     if (!s_net_mutex) s_net_mutex = xSemaphoreCreateMutex();
 }
 
+// Wrap-safe deadline check — millis() < deadline inverts at the 32-bit rollover
+// (~49.7 days uptime), which would make every SOAP call return instantly empty
+// for the ~1 minute it takes millis() to cross back past `deadline`.
+static inline bool time_before(uint32_t deadline) {
+    return (int32_t)(millis() - deadline) < 0;
+}
+
 // Read one line (up to and including '\n') from the client, yielding while it
 // waits for data. Replaces Stream::readStringUntil, which busy-spins in
 // Stream::timedRead with no task yield and can starve the IDLE task (→ watchdog).
 // Returns the line without the trailing CRLF. Stops at the deadline.
 static String read_line(WiFiClient& client, uint32_t deadline) {
     String line;
-    while (millis() < deadline) {
+    while (time_before(deadline)) {
         if (client.available()) {
             char c = (char)client.read();
             if (c == '\n') break;
@@ -81,32 +88,52 @@ String sonos::soap::call(const String& ip, uint16_t port,
 
     // Consume headers; detect chunked transfer encoding
     bool is_chunked = false;
-    while (client.connected() && millis() < deadline) {
+    while (client.connected() && time_before(deadline)) {
         String line = read_line(client, deadline);
         line.trim();
         if (line.isEmpty()) break;
         if (line.indexOf("chunked") >= 0) is_chunked = true;
     }
 
-    // Read body — decode chunked encoding if present
+    // Read body — decode chunked encoding if present. Bulk readBytes (instead
+    // of appending one char at a time) avoids the repeated small String
+    // reallocations that fragment the heap over long uptime.
     String response = "";
+    char   buf[512];
     if (is_chunked) {
-        while ((client.connected() || client.available()) && millis() < deadline) {
+        while ((client.connected() || client.available()) && time_before(deadline)) {
             String size_line = read_line(client, deadline);
             size_line.trim();
             if (size_line.isEmpty()) continue;
             uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
             if (chunk_size == 0) break;
-            for (uint32_t i = 0; i < chunk_size && millis() < deadline; ) {
-                if (client.available()) { response += (char)client.read(); i++; }
-                else delay(1);
+            for (uint32_t i = 0; i < chunk_size && time_before(deadline); ) {
+                int av = client.available();
+                if (av > 0) {
+                    size_t want = chunk_size - i;
+                    if (want > sizeof(buf)) want = sizeof(buf);
+                    if ((size_t)av < want) want = (size_t)av;
+                    size_t got = client.readBytes(buf, want);
+                    response.concat(buf, got);
+                    i += (uint32_t)got;
+                } else if (client.connected()) {
+                    delay(1);
+                } else {
+                    break;
+                }
             }
             read_line(client, deadline);  // trailing CRLF after chunk
         }
     } else {
-        while ((client.connected() || client.available()) && millis() < deadline) {
-            while (client.available()) response += (char)client.read();
-            delay(1);
+        while ((client.connected() || client.available()) && time_before(deadline)) {
+            int av = client.available();
+            if (av > 0) {
+                size_t want = (size_t)av > sizeof(buf) ? sizeof(buf) : (size_t)av;
+                size_t got = client.readBytes(buf, want);
+                response.concat(buf, got);
+            } else {
+                delay(1);
+            }
         }
     }
     client.stop();

@@ -2,7 +2,7 @@
 
 Allows the user to join the home room speaker into another speaker's group, or remove it from a group, entirely from the device. All group operations are direct UPnP SOAP over the LAN.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: User Can Join the Home Room to Another Speaker's Group
 

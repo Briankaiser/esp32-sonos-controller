@@ -59,7 +59,7 @@ The settings screen SHALL include a "Home Room" entry that shows the friendly na
 
 ### Requirement: Tapping Home Room Entry Opens a Speaker Picker
 
-Tapping the Home Room entry SHALL open a full-screen overlay listing all currently discovered speakers. Each list item SHALL show the speaker's friendly name. Tapping a speaker SHALL persist its UUID as the home room, close the overlay, and update the Home Room entry to reflect the chosen name. Tapping outside the list (or a cancel control) SHALL close the overlay without changing the stored value. The overlay SHALL be positioned within the safe area on round displays.
+Tapping the Home Room entry SHALL open a full-screen overlay listing all currently discovered, independently playable speakers. A bonded-set satellite (a home theater surround or subwoofer, or the non-primary unit of a stereo pair) is not independently playable and SHALL be excluded from this list even though it is separately discovered. Each list item SHALL show the speaker's friendly name. Tapping a speaker SHALL persist its UUID as the home room, close the overlay, and update the Home Room entry to reflect the chosen name. Tapping outside the list (or a cancel control) SHALL close the overlay without changing the stored value. The overlay SHALL be positioned within the safe area on round displays.
 
 #### Scenario: User picks a speaker
 
@@ -86,15 +86,20 @@ Tapping the Home Room entry SHALL open a full-screen overlay listing all current
 - **WHEN** the picker overlay is displayed on a round display
 - **THEN** all list entries and controls are drawn within the inscribed disc safe area
 
+#### Scenario: Bonded-set satellites are excluded from the picker
+
+- **WHEN** a discovered speaker is a home theater surround/subwoofer or the non-primary unit of a stereo pair
+- **THEN** it does not appear as a selectable item in the picker overlay
+
 ### Requirement: Settings Screen Provides Access to Group Management
 
-The settings screen SHALL include a "Manage Groups" entry. Tapping it SHALL open the group join/leave overlay (the same overlay previously accessible from the now-playing status strip). The overlay SHALL list all discovered speakers; tapping one joins the home room to that group; a "Go Solo" option detaches the home room from its current group. The overlay SHALL be positioned within the safe area on round displays.
+The settings screen SHALL include a "Manage Groups" entry. Tapping it SHALL open the group join/leave overlay (the same overlay previously accessible from the now-playing status strip). The overlay SHALL list all discovered, independently playable speakers; bonded-set satellites (home theater surrounds/subwoofer, or the non-primary unit of a stereo pair) SHALL be excluded even though they are separately discovered. Tapping one joins the home room to that group; a "Go Solo" option detaches the home room from its current group. The overlay SHALL be positioned within the safe area on round displays.
 
 #### Scenario: User opens group management from settings
 
 - **WHEN** the user taps "Manage Groups" in the settings list
 - **THEN** the group overlay opens over the settings screen
-- **AND** the overlay lists all discovered speakers and a "Go Solo" option
+- **AND** the overlay lists all discovered, independently playable speakers and a "Go Solo" option
 
 #### Scenario: User joins a group from settings
 

@@ -80,12 +80,19 @@ static lv_color_t extract_dominant(const uint8_t* pixels, uint16_t w, uint16_t h
 
 // ── HTTP fetch ────────────────────────────────────────────────────────────────
 
+// Wrap-safe deadline check — millis() < deadline inverts at the 32-bit rollover
+// (~49.7 days uptime), which would make every art fetch return instantly empty
+// for the ~1 minute it takes millis() to cross back past `deadline`.
+static inline bool time_before(uint32_t deadline) {
+    return (int32_t)(millis() - deadline) < 0;
+}
+
 // Reads one '\n'-terminated line, yielding delay(1) when no data is available.
 // readStringUntil routes through Stream::timedRead which busy-spins without
 // yielding to FreeRTOS — this replacement prevents the IDLE watchdog from firing.
 static String read_line(WiFiClient& client, uint32_t deadline) {
     String line;
-    while (millis() < deadline) {
+    while (time_before(deadline)) {
         if (client.available()) {
             char c = (char)client.read();
             if (c == '\n') break;
@@ -130,10 +137,10 @@ static size_t fetch_jpeg(const String& url,
                   path.c_str(), speaker_ip.c_str(), (unsigned)speaker_port);
 
     uint32_t deadline = millis() + 10000;
-    while (!client.available() && millis() < deadline) delay(5);
+    while (!client.available() && time_before(deadline)) delay(5);
     read_line(client, deadline);  // status line
     bool is_chunked = false;
-    while (client.connected() && millis() < deadline) {
+    while (client.connected() && time_before(deadline)) {
         String line = read_line(client, deadline);
         if (line.isEmpty()) break;
         if (line.indexOf("chunked") >= 0) is_chunked = true;
@@ -141,14 +148,14 @@ static size_t fetch_jpeg(const String& url,
 
     size_t fetched = 0;
     if (is_chunked) {
-        while ((client.connected() || client.available()) && millis() < deadline) {
+        while ((client.connected() || client.available()) && time_before(deadline)) {
             String size_line = read_line(client, deadline);
             if (size_line.isEmpty()) continue;
             uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
             if (chunk_size == 0) break;
             // Read chunk body in bursts: readBytes of currently-available data,
             // then yield — prevents starving IDLE when the data stream is continuous.
-            for (uint32_t i = 0; i < chunk_size && millis() < deadline; ) {
+            for (uint32_t i = 0; i < chunk_size && time_before(deadline); ) {
                 int av = client.available();
                 if (av > 0 && fetched < art::kArtJpegBufBytes) {
                     size_t to_read = (size_t)av;
@@ -173,7 +180,7 @@ static size_t fetch_jpeg(const String& url,
             if (fetched >= art::kArtJpegBufBytes) break;
         }
     } else {
-        while ((client.connected() || client.available()) && millis() < deadline) {
+        while ((client.connected() || client.available()) && time_before(deadline)) {
             int av = client.available();
             if (av > 0 && fetched < art::kArtJpegBufBytes) {
                 size_t to_read = (size_t)av;

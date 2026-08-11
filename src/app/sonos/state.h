@@ -11,6 +11,12 @@ struct SpeakerInfo {
     String   ip;
     String   control_url_base;
     uint16_t port = 0;
+    // True for a bonded-set member that isn't independently playable — a home
+    // theater surround/sub satellite or the non-primary unit of a stereo pair.
+    // Set from the ZoneGroupTopology "Invisible" attribute; these still respond
+    // to SSDP and get a full SpeakerInfo, but must not be offered as a home room
+    // or a grouping target. false until the first successful topology fetch.
+    bool     invisible = false;
 };
 
 struct ZoneGroup {

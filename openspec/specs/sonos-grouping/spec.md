@@ -6,7 +6,7 @@ Allows the user to join the home room speaker into another speaker's group, or r
 
 ### Requirement: User Can Join the Home Room to Another Speaker's Group
 
-The device SHALL allow the user to select any other discovered speaker or group and add the home room speaker to that group. The join operation SHALL be executed on the sonos task. Once complete, the home room speaker SHALL play in sync with the target group within the next poll cycle.
+The device SHALL allow the user to select any other discovered, independently playable speaker or group and add the home room speaker to that group. A bonded-set satellite (a home theater surround or subwoofer, or the non-primary unit of a stereo pair) is not independently playable and SHALL NOT be offered as a selectable target, even though it is separately discovered. The join operation SHALL be executed on the sonos task. Once complete, the home room speaker SHALL play in sync with the target group within the next poll cycle.
 
 #### Scenario: User joins home room to another speaker's group
 
@@ -37,7 +37,7 @@ The device SHALL allow the user to make the home room speaker standalone, removi
 
 ### Requirement: Device Shows Current Group State and a Group-Selection Overlay
 
-The now-playing screen SHALL display a visible indicator of the home room's current group state. Activating the indicator SHALL open an overlay listing all discovered speakers and a "Go Solo" option. The overlay SHALL be dismissible without taking any action. The overlay content SHALL be positioned within the display's safe area on round displays.
+The now-playing screen SHALL display a visible indicator of the home room's current group state. Activating the indicator SHALL open an overlay listing all discovered, independently playable speakers and a "Go Solo" option. Bonded-set satellites (home theater surrounds/subwoofer, or the non-primary unit of a stereo pair) SHALL be excluded from this list. The overlay SHALL be dismissible without taking any action. The overlay content SHALL be positioned within the display's safe area on round displays.
 
 #### Scenario: Status indicator shows solo state
 
@@ -52,9 +52,14 @@ The now-playing screen SHALL display a visible indicator of the home room's curr
 #### Scenario: Overlay opens and lists speakers
 
 - **WHEN** the user activates the status indicator
-- **THEN** an overlay appears listing all discovered speakers with their current group status
+- **THEN** an overlay appears listing all discovered, independently playable speakers with their current group status
 - **AND** a "Go Solo" option is present
 - **AND** all list items are within the safe area on round displays
+
+#### Scenario: Bonded-set satellites are excluded from the overlay
+
+- **WHEN** a discovered speaker is a home theater surround/subwoofer or the non-primary unit of a stereo pair
+- **THEN** it does not appear as a selectable item in the overlay
 
 #### Scenario: Overlay closes without action
 

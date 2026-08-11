@@ -64,8 +64,24 @@ void init() {
 void poll() {
     if (!s_request) return;
 
+    // lv_layer_top() is a sibling of the active screen, not a descendant of it —
+    // a modal overlay (settings, favorites, grouping) living there is invisible
+    // to a snapshot rooted at lv_screen_active(). Every overlay is full-screen
+    // and fully opaque, so when one is open, snapshotting the top layer instead
+    // captures the whole visible picture (same detection used by the overlay
+    // guard in now_playing.cpp and nav::has_modal()).
+    lv_obj_t* target = lv_screen_active();
+    lv_obj_t* layer   = lv_layer_top();
+    uint32_t  n       = lv_obj_get_child_count(layer);
+    for (uint32_t i = 0; i < n; i++) {
+        if (!lv_obj_has_flag(lv_obj_get_child(layer, i), LV_OBJ_FLAG_HIDDEN)) {
+            target = layer;
+            break;
+        }
+    }
+
     lv_result_t res = lv_snapshot_take_to_draw_buf(
-        lv_screen_active(), LV_COLOR_FORMAT_RGB888, &s_snap_buf);
+        target, LV_COLOR_FORMAT_RGB888, &s_snap_buf);
 
     s_snap_ok = (res == LV_RESULT_OK);
 

@@ -15,4 +15,5 @@ namespace screens {
     // Idle state (UI task)
     bool      now_playing_is_idle();          // true while the display is idle/off
     void      now_playing_wake_from_touch();  // wake display; consumes the waking tap via BSP
+    void      now_playing_dim_transport();    // brief visual feedback after encoder press
 }

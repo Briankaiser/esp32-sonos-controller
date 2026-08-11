@@ -15,6 +15,11 @@ static sonos::PlaybackState    s_state;
 static std::atomic<int16_t>    s_desired_volume{-1};  // -1 = none pending; 0-100 = optimistic desired
 static std::atomic<uint8_t>    s_boost_polls{0};
 static std::atomic<bool>       s_idle{false};
+// Optimistic transport guard: after Play/Pause, ignore poll results that contradict
+// the expected state until either the speaker confirms or the window expires.
+static constexpr uint8_t      kNoOptTransport = 0xff;
+static std::atomic<uint8_t>   s_opt_transport_state{kNoOptTransport};   // expected TransportState
+static std::atomic<uint32_t>  s_opt_transport_expires_ms{0};            // millis() expiry
 static String                  s_group_target_uuid;
 static String                  s_group_op_target_uuid;
 static String                  s_favorite_uri;
@@ -100,6 +105,17 @@ sonos::PlaybackState sonos::playback::snapshot() {
     int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
     if (desired >= 0) copy.volume = (uint8_t)desired;
     return copy;
+}
+
+void sonos::playback::optimistic_transport(TransportState state) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_state.transport_state = state;
+    s_state.version++;
+    xSemaphoreGive(s_mutex);
+    // Guard: reject conflicting poll results for 1500ms so the UI doesn't bounce
+    // back to stale state while Sonos is processing the command.
+    s_opt_transport_state.store(static_cast<uint8_t>(state), std::memory_order_relaxed);
+    s_opt_transport_expires_ms.store(millis() + 1500, std::memory_order_relaxed);
 }
 
 void sonos::playback::set_cmd_notify_task(void* handle) {
@@ -547,7 +563,7 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     String album   = html_decode(extract_xml_text(didl, "upnp:album"));
     String art_uri = extract_xml_text(didl, "upnp:albumArtURI");
 
-    // GetVolume + GetMute via RenderingControl
+    // GetVolume via RenderingControl (GetMute is in poll_volume, called every 4th cycle)
     static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
     static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
     static const char* kRCArgs = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
@@ -573,18 +589,32 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
         vol_ok = true;
     }
 
-    String mute_resp = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc, "GetMute", kRCArgs);
-    if (mute_resp.isEmpty()) {
-        Serial.println("[Playback] GetMute failed");
-    } else {
-        muted = (extract_xml_text(mute_resp, "CurrentMute") == "1");
-    }
+    // GetMute omitted — mute state is polled every 4th cycle via poll_volume()
 
     // Once the speaker confirms our desired volume, retire the optimistic value
     if (vol_ok) {
         int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
         if (desired >= 0 && (uint8_t)desired == volume) {
             s_desired_volume.store(-1, std::memory_order_relaxed);
+        }
+    }
+
+    // Apply optimistic transport guard: if a recent Play/Pause hasn't been confirmed
+    // yet, keep the expected state rather than reverting to stale poll data.
+    {
+        uint8_t opt_raw = s_opt_transport_state.load(std::memory_order_relaxed);
+        if (opt_raw != kNoOptTransport) {
+            auto opt_ts = static_cast<TransportState>(opt_raw);
+            if (millis() < s_opt_transport_expires_ms.load(std::memory_order_relaxed)) {
+                if (ts == opt_ts) {
+                    // Speaker confirmed the transition — clear guard early
+                    s_opt_transport_state.store(kNoOptTransport, std::memory_order_relaxed);
+                } else {
+                    ts = opt_ts;  // stale result — keep optimistic state
+                }
+            } else {
+                s_opt_transport_state.store(kNoOptTransport, std::memory_order_relaxed);  // expired
+            }
         }
     }
 

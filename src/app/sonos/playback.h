@@ -52,8 +52,9 @@ namespace playback {
 
     void          init();
     void          idle_mode(bool idle);                            // UI task: enter/exit idle poll cadence
-    void          update(const PlaybackState& next);          // sonos task only
-    PlaybackState snapshot();                                  // any task; overlays optimistic desired volume
+    void          update(const PlaybackState& next);                    // sonos task only
+    void          optimistic_transport(TransportState state);          // UI task: instant state flip before poll confirms
+    PlaybackState snapshot();                                          // any task; overlays optimistic desired volume
     void          enqueue_command(PlaybackCommand cmd);        // UI task — wakes cmd_task
     void          enqueue_volume_delta(int16_t delta);        // UI task — wakes cmd_task
     void          set_cmd_notify_task(void* task_handle);     // call from cmd_task at startup

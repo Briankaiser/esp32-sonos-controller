@@ -82,17 +82,17 @@ void test_legibility_bright_accent_on_bright_bg_darkens() {
 
 void test_default_accent_color_is_non_zero() {
     lv_color_t c = accent::get();
-    // Default is 0x1DB954 (Spotify green): r=0x1D=29, g=0xB9=185, b=0x54=84
     int32_t l = lum(c);
     TEST_ASSERT_GREATER_THAN_INT32(0, l);
 }
 
-void test_default_accent_color_matches_spotify_green() {
+void test_default_accent_color_matches_default_gold() {
     lv_color_t c = accent::get();
-    // lv_color_hex(0x1DB954): blue=0x54=84, green=0xB9=185, red=0x1D=29
-    TEST_ASSERT_EQUAL_UINT8(29,  c.red);
-    TEST_ASSERT_EQUAL_UINT8(185, c.green);
-    TEST_ASSERT_EQUAL_UINT8(84,  c.blue);
+    // Default is 0xD4A843 (warm gold — accent.cpp s_current initializer):
+    // r=0xD4=212, g=0xA8=168, b=0x43=67
+    TEST_ASSERT_EQUAL_UINT8(212, c.red);
+    TEST_ASSERT_EQUAL_UINT8(168, c.green);
+    TEST_ASSERT_EQUAL_UINT8(67,  c.blue);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ int main(int /*argc*/, char** /*argv*/) {
     RUN_TEST(test_legibility_bright_accent_on_bright_bg_darkens);
 
     RUN_TEST(test_default_accent_color_is_non_zero);
-    RUN_TEST(test_default_accent_color_matches_spotify_green);
+    RUN_TEST(test_default_accent_color_matches_default_gold);
 
     return UNITY_END();
 }

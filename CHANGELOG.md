@@ -11,6 +11,21 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ## [Unreleased]
 
+### Added
+
+- Sonos state changes now arrive by push (UPnP GENA event subscriptions to
+  AVTransport, RenderingControl, and ZoneGroupTopology) instead of 2-second
+  polling: play/pause/track/volume/grouping changes made from the phone app
+  or any other controller appear on the device within about a second, and
+  the display wakes from idle the moment music starts. Steady-state polling
+  is suspended while eventing is healthy (only a slow track-position resync
+  remains) and resumes automatically — at the previous cadence — whenever
+  subscriptions cannot be established or renewed, so degraded conditions
+  behave exactly like the previous firmware. Implemented without hardware
+  present: on-device verification steps are tracked in the OpenSpec change
+  (`add-upnp-event-subscriptions`), with host-side parser tests and a mock
+  GENA speaker (`tools/mock_gena_speaker.py`) covering what a bench can.
+
 ### Fixed
 
 - Title, artist, and album could go blank (while album art stayed frozen on

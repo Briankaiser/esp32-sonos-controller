@@ -20,6 +20,7 @@
 #include "app/sonos/playback.h"
 #include "app/sonos/art.h"
 #include "app/sonos/favorites.h"
+#include "app/sonos/eventing.h"
 
 /* ── Task configuration ─────────────────────────────────────────────────────
  *
@@ -27,6 +28,8 @@
  * cmd_task   — core 0, drains user commands; higher priority than sonos_task so
  *              a tap preempts an in-flight poll and executes immediately.
  * sonos_task — core 0, SSDP discovery + topology polling loop.
+ * event_task — core 0, GENA subscriptions + NOTIFY listener (eventing.cpp);
+ *              while healthy, sonos_task's steady-state polls are suspended.
  * web_task   — core 0, runs WebServer::handleClient loop for screenshot + OTA.
  */
 
@@ -163,9 +166,10 @@ static void sonos_task(void* /*arg*/) {
     // Register this task as the boost-repoll target; cmd_task notifies us after a command
     sonos::playback::set_poll_notify_task(xTaskGetCurrentTaskHandle());
 
-    uint8_t  s_volume_skip      = 0;
-    uint32_t s_last_heap_log_ms = 0;
-    bool     s_favorites_loaded = false;  // latches once fetch succeeds — avoids
+    uint8_t  s_volume_skip       = 0;
+    uint32_t s_last_heap_log_ms  = 0;
+    uint32_t s_last_pos_resync_ms = 0;    // event mode: last GetPositionInfo resync
+    bool     s_favorites_loaded  = false; // latches once fetch succeeds — avoids
                                            // a FavoritesState deep-copy every poll
 
     for (;;) {
@@ -200,15 +204,35 @@ static void sonos_task(void* /*arg*/) {
                             }
                         }
                     }
-                    sonos::playback::poll(*poll_target);
-                    // Volume: always home room, but only every 4th cycle (saves ~200ms/cycle)
-                    // TODO(cleanup): skip poll_volume when poll_target == &hr (standalone) —
-                    //   poll() already called GetVolume on the same speaker that cycle, making
-                    //   this a redundant 2-SOAP-call round-trip; only needed for group members.
-                    if (++s_volume_skip >= 4) {
-                        s_volume_skip = 0;
-                        const SpeakerInfo* vol_src = (poll_target != &hr) ? &hr : poll_target;
-                        sonos::playback::poll_volume(*vol_src);
+                    if (!sonos::eventing::healthy()) {
+                        // Fallback mode — GENA subscriptions down: full-state polling
+                        // at the pre-eventing cadence is the sole state source.
+                        sonos::playback::poll(*poll_target);
+                        // Volume: always home room, but only every 4th cycle (saves ~200ms/cycle)
+                        // TODO(cleanup): skip poll_volume when poll_target == &hr (standalone) —
+                        //   poll() already called GetVolume on the same speaker that cycle, making
+                        //   this a redundant 2-SOAP-call round-trip; only needed for group members.
+                        if (++s_volume_skip >= 4) {
+                            s_volume_skip = 0;
+                            const SpeakerInfo* vol_src = (poll_target != &hr) ? &hr : poll_target;
+                            sonos::playback::poll_volume(*vol_src);
+                        }
+                    } else {
+                        // Event mode — transport/metadata/volume/mute arrive by push.
+                        // The only residual poll is a position resync: position is not
+                        // evented. Runs on evented transport/track changes (flag), after
+                        // user commands (boost wakes this loop), and every 30s while
+                        // Playing to correct interpolation drift.
+                        bool resync = sonos::playback::take_position_resync();
+                        bool playing = pb_cur.transport_state == sonos::TransportState::Playing;
+                        if (!resync && playing &&
+                            millis() - s_last_pos_resync_ms >= 30000) {
+                            resync = true;
+                        }
+                        if (resync) {
+                            sonos::playback::poll_position(*poll_target);
+                            s_last_pos_resync_ms = millis();
+                        }
                     }
                 }
 
@@ -409,6 +433,7 @@ void setup() {
     sonos::state::init();
     sonos::soap::init();       // SOAP serialization mutex — before any SOAP-calling task
     sonos::playback::init();
+    sonos::eventing::init();   // NOTIFY body buffer (PSRAM)
     art::init();
     favorites::init();
     art::start_task();
@@ -425,6 +450,10 @@ void setup() {
         xTaskCreatePinnedToCore(web_task, "Web", kWebTaskStackBytes,
                                 nullptr, kSonosTaskPriority, nullptr, 0);
     }
+    // GENA event subscriptions (core 0, prio 3). Started unconditionally — the
+    // task idles until WiFi and a home room exist; sonos_task polls until
+    // eventing::healthy() flips true.
+    sonos::eventing::start_task();
 
     // main task (Arduino's setup/loop) is not needed after this point
 }

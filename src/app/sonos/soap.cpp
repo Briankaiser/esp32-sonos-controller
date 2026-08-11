@@ -14,6 +14,14 @@ void sonos::soap::init() {
     if (!s_net_mutex) s_net_mutex = xSemaphoreCreateMutex();
 }
 
+void sonos::soap::net_lock() {
+    if (s_net_mutex) xSemaphoreTake(s_net_mutex, portMAX_DELAY);
+}
+
+void sonos::soap::net_unlock() {
+    if (s_net_mutex) xSemaphoreGive(s_net_mutex);
+}
+
 // Wrap-safe deadline check — millis() < deadline inverts at the 32-bit rollover
 // (~49.7 days uptime), which would make every SOAP call return instantly empty
 // for the ~1 minute it takes millis() to cross back past `deadline`.

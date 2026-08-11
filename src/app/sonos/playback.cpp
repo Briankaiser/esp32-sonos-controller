@@ -1,5 +1,6 @@
 #include "playback.h"
 #include "soap.h"
+#include "xml_util.h"
 #include "../../services/prefs.h"
 
 #include <Arduino.h>
@@ -27,19 +28,25 @@ static String                  s_favorite_metadata;
 static bool                    s_favorite_meta_ready = false;
 static TaskHandle_t            s_cmd_task_handle  = nullptr;  // drains commands, notified by enqueue
 static TaskHandle_t            s_poll_task_handle = nullptr;  // sonos poll loop, notified for boost re-poll
+// Event-ingestion coordination (event_task writes, sonos_task reads):
+// bumped on every GENA ingest; poll() snapshots it at entry and discards its
+// result if an event landed while the poll's SOAP calls were in flight — a
+// slow poll response must never overwrite fresher evented state.
+static std::atomic<uint32_t>   s_event_ingest_count{0};
+// Stamped by flush_volume(); RenderingControl volume events within 1.5s of a
+// local SetVolume are echoes of our own write racing the encoder — ignored.
+static std::atomic<uint32_t>   s_last_volume_flush_ms{0};
+// Set when an evented transport/track change makes the interpolated position
+// stale; sonos_task consumes it and runs a GetPositionInfo resync.
+static std::atomic<bool>       s_position_resync{false};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Converts "h:mm:ss" to total seconds.  Returns 0 on parse failure.
-static uint32_t parse_time(const String& hmmss) {
-    int first = hmmss.indexOf(':');
-    if (first < 0) return 0;
-    int second = hmmss.indexOf(':', first + 1);
-    if (second < 0) return 0;
-    uint32_t h = (uint32_t)hmmss.substring(0, first).toInt();
-    uint32_t m = (uint32_t)hmmss.substring(first + 1, second).toInt();
-    uint32_t s = (uint32_t)hmmss.substring(second + 1).toInt();
-    return h * 3600u + m * 60u + s;
+// XML/string helpers shared with discovery and eventing (see xml_util.h)
+using sonos::xml::parse_time;
+using sonos::xml::html_decode;
+static inline String extract_xml_text(const String& xml, const String& tag) {
+    return sonos::xml::field(xml, tag);
 }
 
 // Percent-decodes a URL-encoded string (%XX sequences, + → space).
@@ -59,29 +66,6 @@ static String url_decode(const String& s) {
         }
     }
     return out;
-}
-
-// HTML-entity-decodes the common five entities in-place (used for DIDL blocks).
-static String html_decode(const String& s) {
-    String r = s;
-    r.replace("&lt;",   "<");
-    r.replace("&gt;",   ">");
-    r.replace("&quot;", "\"");
-    r.replace("&apos;", "'");
-    r.replace("&amp;",  "&");  // must be last
-    return r;
-}
-
-// Returns the text between the first <tag>…</tag> pair; empty on miss.
-static String extract_xml_text(const String& xml, const String& tag) {
-    String open  = "<" + tag + ">";
-    String close = "</" + tag + ">";
-    int s = xml.indexOf(open);
-    if (s < 0) return "";
-    s += open.length();
-    int e = xml.indexOf(close, s);
-    if (e < 0) return "";
-    return xml.substring(s, e);
 }
 
 // ── Public interface ──────────────────────────────────────────────────────────
@@ -517,6 +501,7 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
         }
     }
 
+    s_last_volume_flush_ms.store(millis(), std::memory_order_relaxed);
     s_boost_polls.store(4, std::memory_order_relaxed);
 }
 
@@ -526,6 +511,11 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     static const char* kPath = "/MediaRenderer/AVTransport/Control";
     static const char* kSvc  = "urn:schemas-upnp-org:service:AVTransport:1";
     static const char* kArgs = "<InstanceID>0</InstanceID>";
+
+    // Recency guard: snapshot the event-ingest counter before any SOAP call.
+    // If a GENA event lands while this poll is in flight, the poll result is
+    // older than current state and must be discarded (checked before update()).
+    uint32_t ingest_at_entry = s_event_ingest_count.load(std::memory_order_relaxed);
 
     // GetTransportInfo
     String info_resp = sonos::soap::call(
@@ -640,6 +630,10 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     // interval between discovery cycles.
     next.group_coordinator_uuid = prev.group_coordinator_uuid;
 
+    if (s_event_ingest_count.load(std::memory_order_relaxed) != ingest_at_entry) {
+        Serial.println("[Playback] poll result stale — event ingested mid-flight, discarded");
+        return;
+    }
     update(next);
 }
 
@@ -684,4 +678,140 @@ void sonos::playback::poll_volume(const SpeakerInfo& speaker) {
     s_state.muted   = muted;
     s_state.version++;
     xSemaphoreGive(s_mutex);
+}
+
+// ── poll_position — GetPositionInfo only (event mode's residual poll) ─────────
+//
+// While eventing is healthy this is the only steady-state SOAP traffic:
+// position is not evented, so it is resynced on evented transport/track
+// changes and on a slow cadence while Playing. Never touches transport
+// state or track metadata — those belong to the event path.
+
+void sonos::playback::poll_position(const SpeakerInfo& speaker) {
+    static const char* kPath = "/MediaRenderer/AVTransport/Control";
+    static const char* kSvc  = "urn:schemas-upnp-org:service:AVTransport:1";
+    static const char* kArgs = "<InstanceID>0</InstanceID>";
+
+    String pos_resp = sonos::soap::call(
+        speaker.ip, speaker.port, kPath, kSvc, "GetPositionInfo", kArgs);
+    if (pos_resp.isEmpty()) {
+        Serial.println("[Playback] GetPositionInfo (resync) failed");
+        return;
+    }
+
+    uint32_t duration_s = parse_time(extract_xml_text(pos_resp, "TrackDuration"));
+    uint32_t position_s = parse_time(extract_xml_text(pos_resp, "RelTime"));
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_state.position_s        = position_s;
+    if (duration_s > 0) s_state.duration_s = duration_s;
+    s_state.poll_timestamp_ms = millis();
+    s_state.version++;
+    xSemaphoreGive(s_mutex);
+}
+
+bool sonos::playback::take_position_resync() {
+    return s_position_resync.exchange(false, std::memory_order_relaxed);
+}
+
+// ── GENA event ingestion (event_task) ─────────────────────────────────────────
+
+void sonos::playback::ingest_event_transport(const sonos::gena::AVTransportEvent& ev) {
+    TransportState ts = TransportState::Unknown;
+    if (ev.has_transport) {
+        if      (ev.transport_state == "PLAYING")          ts = TransportState::Playing;
+        else if (ev.transport_state == "PAUSED_PLAYBACK")  ts = TransportState::Paused;
+        else if (ev.transport_state == "STOPPED")          ts = TransportState::Stopped;
+        else if (ev.transport_state == "TRANSITIONING")    ts = TransportState::Transitioning;
+
+        // Optimistic transport guard — same semantics as poll(): a recent local
+        // Play/Pause keeps its expected state until confirmed or expired, so a
+        // late SEQ-0 initial event can't bounce the UI backwards.
+        uint8_t opt_raw = s_opt_transport_state.load(std::memory_order_relaxed);
+        if (opt_raw != kNoOptTransport) {
+            auto opt_ts = static_cast<TransportState>(opt_raw);
+            if (millis() < s_opt_transport_expires_ms.load(std::memory_order_relaxed)) {
+                if (ts == opt_ts) {
+                    s_opt_transport_state.store(kNoOptTransport, std::memory_order_relaxed);
+                } else {
+                    ts = opt_ts;
+                }
+            } else {
+                s_opt_transport_state.store(kNoOptTransport, std::memory_order_relaxed);
+            }
+        }
+    }
+
+    bool track_changed     = false;
+    bool transport_changed = false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (ev.has_metadata) {
+        track_changed = (s_state.title != ev.title) || (s_state.track_uri != ev.track_uri);
+        s_state.title         = ev.title;
+        s_state.artist        = ev.artist;
+        s_state.album         = ev.album;
+        s_state.album_art_uri = ev.art_uri;
+        s_state.track_uri     = ev.track_uri;
+    }
+    if (ev.has_duration) s_state.duration_s = ev.duration_s;
+    if (ev.has_transport) {
+        transport_changed = (s_state.transport_state != ts);
+        s_state.transport_state = ts;
+    }
+    if (track_changed) {
+        // A new track starts near zero; the position resync below corrects drift.
+        s_state.position_s        = 0;
+        s_state.poll_timestamp_ms = millis();
+    } else if (transport_changed) {
+        // Re-anchor interpolation at the transition (e.g. resume after pause).
+        s_state.poll_timestamp_ms = millis();
+    }
+    s_state.version++;
+    xSemaphoreGive(s_mutex);
+
+    s_event_ingest_count.fetch_add(1, std::memory_order_relaxed);
+
+    if (track_changed || transport_changed) {
+        s_position_resync.store(true, std::memory_order_relaxed);
+        notify_poll_task();  // wake sonos_task to run the resync promptly
+    }
+}
+
+void sonos::playback::ingest_event_rendering(const sonos::gena::RenderingControlEvent& ev) {
+    bool apply_volume = ev.has_volume;
+    if (apply_volume) {
+        int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
+        if (desired >= 0) {
+            if ((uint8_t)desired == ev.volume) {
+                // Speaker confirmed our optimistic value — retire it and apply.
+                s_desired_volume.store(-1, std::memory_order_relaxed);
+            } else {
+                apply_volume = false;  // flush pending — event is stale echo
+            }
+        }
+        // Within 1.5s of a local SetVolume, differing values are echoes of our
+        // own rapid writes racing the encoder — the desired model stays authoritative.
+        uint32_t last_flush = s_last_volume_flush_ms.load(std::memory_order_relaxed);
+        if (apply_volume && (uint32_t)(millis() - last_flush) < 1500u) {
+            xSemaphoreTake(s_mutex, portMAX_DELAY);
+            bool differs = (s_state.volume != ev.volume);
+            xSemaphoreGive(s_mutex);
+            if (differs) apply_volume = false;
+        }
+    }
+
+    bool changed = false;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (apply_volume && s_state.volume != ev.volume) {
+        s_state.volume = ev.volume;
+        changed = true;
+    }
+    if (ev.has_mute && s_state.muted != ev.muted) {
+        s_state.muted = ev.muted;
+        changed = true;
+    }
+    if (changed) s_state.version++;
+    xSemaphoreGive(s_mutex);
+
+    s_event_ingest_count.fetch_add(1, std::memory_order_relaxed);
 }

@@ -14,4 +14,10 @@ namespace sonos::soap {
     String call(const String& ip, uint16_t port,
                 const String& path, const String& service_type,
                 const String& action, const String& args_xml);
+
+    // Expose the same serialization mutex for non-SOAP speaker connections
+    // (GENA SUBSCRIBE/UNSUBSCRIBE in eventing.cpp) so those requests also never
+    // overlap another in-flight connection and the socket budget stays bounded.
+    void net_lock();
+    void net_unlock();
 }

@@ -631,6 +631,14 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     next.volume            = volume;
     next.muted             = muted;
     next.version           = prev.version;
+    // update() below replaces the whole struct — carry forward the fields this
+    // function doesn't own. group_coordinator_uuid is set once per discovery
+    // cycle by update_group_uuid(); without this, every poll() call (every
+    // ~2s) wiped it back to empty immediately after, silently reverting a
+    // grouped speaker to polling itself instead of its coordinator (which
+    // returns NOT_IMPLEMENTED for track metadata) for the rest of the
+    // interval between discovery cycles.
+    next.group_coordinator_uuid = prev.group_coordinator_uuid;
 
     update(next);
 }

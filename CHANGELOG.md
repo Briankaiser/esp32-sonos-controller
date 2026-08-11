@@ -13,6 +13,33 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Fixed
 
+- Title, artist, and album could go blank (while album art stayed frozen on
+  the last successful track) whenever the home room was grouped with another
+  speaker as a non-coordinator member. The internal record of which speaker
+  is the group's coordinator was being wiped on every playback poll (every
+  ~2s) immediately after being set once per discovery cycle, so the device
+  fell back to polling the member itself — which reports no track metadata
+  for a grouped speaker — for the rest of the interval between discovery
+  cycles. This bug predates this session, but was far more noticeable once
+  discovery slowed to a 10-minute interval (see below): what used to
+  self-correct within 2 minutes could previously go unnoticed, and now
+  would have stayed broken for up to 10.
+- `/screenshot` now captures modal overlays (settings, favorites, grouping).
+  It previously snapshotted only the base now-playing screen, missing
+  anything drawn on the top layer.
+- A speaker's display name could get stuck on its raw, un-friendly SSDP
+  `friendlyName` (e.g. "192.168.4.27 - Sonos Roam - RINCON_...") until the
+  next successful zone-topology fetch corrected it to the real room name.
+  A single failed fetch (transient network hiccup) now falls back to the
+  last known-good name instead of the raw one — more consequential once
+  discovery slowed to a 10-minute interval (see below), since a miss used
+  to self-correct within 2 minutes and now would have taken up to 10.
+- Home theater surround/subwoofer satellites and the non-primary unit of a
+  stereo pair (e.g. Era 300s bonded to an Arc Ultra) no longer appear as
+  selectable entries in the home room picker or the group-management
+  overlay — these are detected from the `Invisible` flag in Sonos'
+  zone-group topology and were previously listed as if independently
+  playable.
 - Long-unattended-operation hardening pass: WiFi now automatically reconnects
   after a drop (previously required a manual power cycle); Sonos Favorites
   retry until they load successfully instead of giving up permanently after
@@ -22,8 +49,15 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
   watchdog reboot on a slow device response; and free-heap is logged
   periodically to serial for diagnosing any future leak over a long soak.
 
+### Changed
+
+- Speaker discovery now runs every 10 minutes instead of every 2 — speaker
+  IPs and topology rarely change, so this cuts SSDP/SOAP chatter 5x.
+
 ### Added
 
+- The Settings screen shows the device's current IP address as small,
+  non-interactive text at the bottom of the list, for on-site debugging.
 - Rotary encoder now navigates modal overlays (favorites, settings, grouping):
   turning the knob moves a selection indicator through the list and a press
   activates the selected item, just like a touch tap. Volume and play/pause

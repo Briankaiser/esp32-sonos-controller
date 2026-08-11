@@ -8,6 +8,7 @@
 #include "ui/layout/layout.h"
 #include "ui/screens/placeholder.h"
 #include "ui/screens/now_playing.h"
+#include "ui/nav.h"
 #include "services/prefs.h"
 #include "services/portal.h"
 #include "services/screenshot.h"
@@ -121,12 +122,13 @@ static void cmd_task(void* /*arg*/) {
         SonosState st = sonos::state::snapshot();
         if (st.home_room_idx < 0 || st.home_room_idx >= (int)st.speakers.size()) continue;
         const SpeakerInfo& speaker = st.speakers[st.home_room_idx];
-        bool did_work = false;
+        bool did_cmd    = false;
+        bool did_volume = false;
 
         // Transport / grouping / favorites — drain immediately, no debounce
         if (bits & sonos::playback::kNotifyCommand) {
             sonos::playback::drain_commands(speaker);
-            did_work = true;
+            did_cmd = true;
         }
 
         // Volume — 80ms quiet-window debounce; 150ms cap so audio tracks during sustained spin
@@ -141,12 +143,13 @@ static void cmd_task(void* /*arg*/) {
             // Handle any command that arrived during the debounce window
             if (bits & sonos::playback::kNotifyCommand) {
                 sonos::playback::drain_commands(speaker);
+                did_cmd = true;
             }
             sonos::playback::flush_volume(speaker);
-            did_work = true;
+            did_volume = true;
         }
 
-        if (did_work) sonos::playback::notify_poll_task();
+        if (did_volume || did_cmd) sonos::playback::notify_poll_task();
     }
 }
 
@@ -264,9 +267,13 @@ static void ui_task(void* /*arg*/) {
         while (bsp::pop_event(evt)) {
             switch (evt.intent) {
                 case bsp::Intent::VolumeDelta: {
-                    sonos::playback::enqueue_volume_delta(-evt.value);  // negate: CW = up; updates s_desired_volume
-                    sonos::PlaybackState pb = sonos::playback::snapshot();  // returns desired volume
-                    screens::now_playing_update_volume_arc((int)pb.volume);
+                    if (nav::has_modal()) {
+                        nav::navigate(-evt.value);
+                    } else {
+                        sonos::playback::enqueue_volume_delta(-evt.value);  // negate: CW = up; updates s_desired_volume
+                        sonos::PlaybackState pb = sonos::playback::snapshot();  // returns desired volume
+                        screens::now_playing_update_volume_arc((int)pb.volume);
+                    }
                     break;
                 }
                 case bsp::Intent::EncoderButtonDown:
@@ -280,7 +287,17 @@ static void ui_task(void* /*arg*/) {
                     if (s_reset_timer)   { lv_timer_delete(s_reset_timer);    s_reset_timer = nullptr; }
                     if (s_reset_overlay) { lv_obj_delete(s_reset_overlay); s_reset_overlay = nullptr; }
                     if (millis() - s_btn_down_ms < prefs::kMuteShortPressMs) {
-                        sonos::playback::enqueue_command(sonos::PlaybackCommand::ToggleMute);
+                        if (nav::has_modal()) {
+                            if (nav::has_selection()) nav::select();
+                        } else {
+                            sonos::PlaybackState pb = sonos::playback::snapshot();
+                            bool playing = pb.transport_state == sonos::TransportState::Playing;
+                            sonos::playback::enqueue_command(
+                                playing ? sonos::PlaybackCommand::Pause : sonos::PlaybackCommand::Play);
+                            sonos::playback::optimistic_transport(
+                                playing ? sonos::TransportState::Paused : sonos::TransportState::Playing);
+                            screens::now_playing_dim_transport();
+                        }
                     }
                     break;
                 default:

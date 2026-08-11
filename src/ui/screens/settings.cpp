@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "../nav.h"
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
 #include "../../app/sonos/playback.h"
@@ -43,6 +44,7 @@ static void close_settings() {
     }
     s_room_btn = nullptr;
     s_gvol_btn = nullptr;
+    nav::clear_list();
 }
 
 // ── settings_open_room_picker ─────────────────────────────────────────────────
@@ -61,6 +63,7 @@ static void settings_open_room_picker(lv_event_t*) {
         if (lv_event_get_target(e) == s_picker) {
             lv_obj_delete(s_picker);
             s_picker = nullptr;
+            nav::clear_list();
         }
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -115,6 +118,7 @@ static void settings_open_room_picker(lv_event_t*) {
                     lv_obj_set_user_data(b, nullptr);
                 }
                 if (s_picker) { lv_obj_delete(s_picker); s_picker = nullptr; }
+                nav::clear_list();
             }, LV_EVENT_CLICKED, nullptr);
         }
     }
@@ -126,7 +130,10 @@ static void settings_open_room_picker(lv_event_t*) {
     lv_obj_set_style_pad_all(cancel_btn, 10, 0);
     lv_obj_add_event_cb(cancel_btn, [](lv_event_t*) {
         if (s_picker) { lv_obj_delete(s_picker); s_picker = nullptr; }
+        nav::clear_list();
     }, LV_EVENT_CLICKED, nullptr);
+
+    nav::register_list(list);
 }
 
 // ── settings_open_group_overlay ───────────────────────────────────────────────
@@ -145,6 +152,7 @@ static void settings_open_group_overlay(lv_event_t*) {
         if (lv_event_get_target(e) == s_group_overlay) {
             lv_obj_delete(s_group_overlay);
             s_group_overlay = nullptr;
+            nav::clear_list();
         }
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -199,6 +207,7 @@ static void settings_open_group_overlay(lv_event_t*) {
         lv_obj_add_event_cb(solo_btn, [](lv_event_t*) {
             sonos::playback::enqueue_command(sonos::PlaybackCommand::LeaveGroup);
             if (s_group_overlay) { lv_obj_delete(s_group_overlay); s_group_overlay = nullptr; }
+            nav::clear_list();
         }, LV_EVENT_CLICKED, nullptr);
     }
 
@@ -238,8 +247,11 @@ static void settings_open_group_overlay(lv_event_t*) {
                 lv_obj_set_user_data(b, nullptr);
             }
             if (s_group_overlay) { lv_obj_delete(s_group_overlay); s_group_overlay = nullptr; }
+            nav::clear_list();
         }, LV_EVENT_CLICKED, nullptr);
     }
+
+    nav::register_list(list);
 }
 
 // ── screens::settings_open ────────────────────────────────────────────────────
@@ -296,4 +308,6 @@ void screens::settings_open() {
                 !current ? "Group Volume: Whole group" : "Group Volume: Home room only");
         }
     }, LV_EVENT_CLICKED, nullptr);
+
+    nav::register_list(list);
 }

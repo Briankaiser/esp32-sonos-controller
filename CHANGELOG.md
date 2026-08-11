@@ -13,6 +13,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Rotary encoder now navigates modal overlays (favorites, settings, grouping):
+  turning the knob moves a selection indicator through the list and a press
+  activates the selected item, just like a touch tap. Volume and play/pause
+  control resume automatically once the overlay closes.
+  ([add-rotary-modal-nav](openspec/changes/add-rotary-modal-nav/proposal.md))
 - Settings screen (gear icon on now-playing): select home room speaker, manage zone
   groups, and toggle group-wide volume control.
   ([add-settings-screen](openspec/changes/add-settings-screen/proposal.md))

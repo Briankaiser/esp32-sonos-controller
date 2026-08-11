@@ -1,5 +1,6 @@
 #include "now_playing.h"
 #include "settings.h"
+#include "../nav.h"
 #include "../../app/sonos/favorites.h"
 #include <algorithm>
 #include "../layout/layout.h"
@@ -19,7 +20,8 @@ static lv_obj_t*          s_play_btn_lbl   = nullptr;
 static lv_obj_t*          s_progress_bar   = nullptr;
 static lv_obj_t*          s_transport_cont = nullptr;
 static lv_obj_t*          s_volume_arc     = nullptr;
-static lv_timer_t*        s_interp_timer   = nullptr;
+static lv_timer_t*        s_interp_timer          = nullptr;
+static lv_timer_t*        s_transport_restore_tmr = nullptr;
 static lv_obj_t*          s_art_img        = nullptr;
 static lv_image_dsc_t     s_art_dsc        = {};
 static uint32_t           s_art_version    = 0;
@@ -65,6 +67,25 @@ static lv_obj_t* slot_container(lv_obj_t* parent, SlotId id) {
     lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
     return c;
 }
+
+// ── Transport dim feedback ────────────────────────────────────────────────────
+
+static void dim_transport() {
+    if (!s_transport_cont) return;
+    lv_obj_set_style_opa(s_transport_cont, LV_OPA_30, 0);
+    if (s_transport_restore_tmr) {
+        lv_timer_reset(s_transport_restore_tmr);
+    } else {
+        s_transport_restore_tmr = lv_timer_create([](lv_timer_t* t) {
+            if (s_transport_cont) lv_obj_set_style_opa(s_transport_cont, LV_OPA_COVER, 0);
+            lv_timer_delete(t);
+            s_transport_restore_tmr = nullptr;
+        }, 1000, nullptr);
+        lv_timer_set_repeat_count(s_transport_restore_tmr, 1);
+    }
+}
+
+void screens::now_playing_dim_transport() { dim_transport(); }
 
 // ── now_playing_create ────────────────────────────────────────────────────────
 
@@ -156,7 +177,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_center(prev_lbl);
     lv_obj_add_event_cb(prev_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Previous);
-        lv_obj_set_style_opa(s_transport_cont, LV_OPA_40, 0);
+        dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
     // Play/Pause
@@ -175,11 +196,12 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_text_color(s_play_btn_lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(s_play_btn_lbl);
     lv_obj_add_event_cb(play_btn, [](lv_event_t*) {
+        bool playing = s_last.transport_state == sonos::TransportState::Playing;
         sonos::playback::enqueue_command(
-            s_last.transport_state == sonos::TransportState::Playing
-                ? sonos::PlaybackCommand::Pause
-                : sonos::PlaybackCommand::Play);
-        lv_obj_set_style_opa(s_transport_cont, LV_OPA_40, 0);
+            playing ? sonos::PlaybackCommand::Pause : sonos::PlaybackCommand::Play);
+        sonos::playback::optimistic_transport(
+            playing ? sonos::TransportState::Paused : sonos::TransportState::Playing);
+        dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
     // Next
@@ -199,7 +221,7 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_center(next_lbl);
     lv_obj_add_event_cb(next_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Next);
-        lv_obj_set_style_opa(s_transport_cont, LV_OPA_40, 0);
+        dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
     // ── SLOT_PROGRESS — progress bar ─────────────────────────────────────────
@@ -247,7 +269,8 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_t* gear_lbl = lv_label_create(s_status_cont);
     lv_label_set_text(gear_lbl, LV_SYMBOL_SETTINGS);
     lv_obj_set_style_text_font(gear_lbl, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(gear_lbl, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_text_color(gear_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_opa(gear_lbl, LV_OPA_30, 0);
     lv_obj_align(gear_lbl, LV_ALIGN_CENTER, 0, 0);
 
     // 1 s interpolation timer
@@ -290,6 +313,7 @@ void screens::now_playing_open_favorites_overlay() {
         lv_obj_add_event_cb(s_favorites_overlay, [](lv_event_t* e) {
             if (lv_event_get_target(e) == s_favorites_overlay) {
                 lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+                nav::clear_list();
             }
         }, LV_EVENT_CLICKED, nullptr);
 
@@ -338,12 +362,14 @@ void screens::now_playing_open_favorites_overlay() {
                         sonos::playback::enqueue_command(sonos::PlaybackCommand::PlayFavorite);
                     }
                     lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+                    nav::clear_list();
                 }, LV_EVENT_CLICKED, nullptr);
             }
         }
     }
 
     lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+    nav::register_list(s_favorites_list);
 }
 
 
@@ -418,6 +444,7 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
     s_last = state;
 
     // Full-screen overlay is open — visual updates are invisible; skip the churn.
+    // (transport dim timer keeps running independently — no need to guard it here)
     // Idle tracking and loading-dismiss above still run normally.
     // NOTE: favorites overlay stays as a hidden child of lv_layer_top() between opens,
     // so we must check visibility, not just child count.
@@ -434,7 +461,8 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
         if (covered) return;
     }
 
-    lv_obj_set_style_opa(s_transport_cont, LV_OPA_COVER, 0);  // clear any pending dim
+    if (!s_transport_restore_tmr)  // don't cut short a pending dim
+        lv_obj_set_style_opa(s_transport_cont, LV_OPA_COVER, 0);
 
     lv_label_set_text(s_title_lbl,
         state.title.isEmpty() ? "\xe2\x80\x94" : state.title.c_str());

@@ -7,6 +7,7 @@
 #include "../../services/prefs.h"
 #include <algorithm>
 #include <lvgl.h>
+#include <WiFi.h>
 
 // ── Statics (UI task only) ────────────────────────────────────────────────────
 
@@ -85,6 +86,11 @@ static void settings_open_room_picker(lv_event_t*) {
         lv_obj_remove_flag(btn, LV_OBJ_FLAG_CLICKABLE);
     } else {
         for (const auto& sp : st.speakers) {
+            // Bonded-set satellites (home theater surround/sub, non-primary side of
+            // a stereo pair) aren't independently playable — never offer them as a
+            // home room.
+            if (sp.invisible) continue;
+
             String label = speaker_label(sp);
             lv_obj_t* btn = lv_list_add_button(list, nullptr, label.c_str());
             lv_obj_set_height(btn, 64);
@@ -221,6 +227,9 @@ static void settings_open_group_overlay(lv_event_t*) {
 
     for (const auto& sp : st.speakers) {
         if (sp.uuid == home_uuid) continue;
+        // Bonded-set satellites aren't independently playable — never offer them
+        // as a grouping target.
+        if (sp.invisible) continue;
 
         String display_name = speaker_label(sp);
         bool in_group = std::find(group_member_uuids.begin(), group_member_uuids.end(),
@@ -326,6 +335,14 @@ void screens::settings_open() {
                 !current ? "Group Volume: Whole group" : "Group Volume: Home room only");
         }
     }, LV_EVENT_CLICKED, nullptr);
+
+    // ── Device IP — debug aid, not interactive ────────────────────────────────
+    // lv_list_add_text() creates a plain non-clickable label (unlike
+    // lv_list_add_button), matching the "small text, not selectable" ask.
+    String ip_text = "IP: " + WiFi.localIP().toString();
+    lv_obj_t* ip_lbl = lv_list_add_text(list, ip_text.c_str());
+    lv_obj_set_style_text_font(ip_lbl, font(FontRole::Caption), 0);
+    lv_obj_set_style_text_color(ip_lbl, lv_color_hex(0x555555), 0);
 
     nav::register_list(list);
 }

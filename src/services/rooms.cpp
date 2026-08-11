@@ -31,7 +31,8 @@ static void handle_get_rooms() {
         json += "      \"name\": "        + json_str(sp.friendly_name) + ",\n";
         json += "      \"ip\": "          + json_str(sp.ip)            + ",\n";
         json += "      \"port\": "        + String(sp.port)            + ",\n";
-        json += "      \"is_home_room\": " + String(is_home ? "true" : "false") + "\n";
+        json += "      \"is_home_room\": " + String(is_home ? "true" : "false") + ",\n";
+        json += "      \"invisible\": "   + String(sp.invisible ? "true" : "false") + "\n";
         json += "    }";
         if (i + 1 < (int)st.speakers.size()) json += ",";
         json += "\n";

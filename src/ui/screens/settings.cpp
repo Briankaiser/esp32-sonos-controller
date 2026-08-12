@@ -189,14 +189,19 @@ static void settings_open_room_picker(lv_event_t*) {
                 String* uuid = static_cast<String*>(lv_obj_get_user_data(b));
                 if (uuid) {
                     prefs::set_home_room(*uuid);
+                    // Re-resolve home_room_idx immediately so the polling loop
+                    // switches rooms on its next wake rather than waiting up to
+                    // kDiscoveryIntervalMs (10 min) for the next discovery cycle.
                     SonosState st2 = sonos::state::snapshot();
                     String new_label = "Home Room: Not set";
-                    for (const auto& s : st2.speakers) {
-                        if (s.uuid == *uuid) {
-                            new_label = "Home Room: " + speaker_label(s);
+                    for (int i = 0; i < (int)st2.speakers.size(); i++) {
+                        if (st2.speakers[i].uuid == *uuid) {
+                            new_label = "Home Room: " + speaker_label(st2.speakers[i]);
+                            st2.home_room_idx = i;
                             break;
                         }
                     }
+                    sonos::state::update(st2);
                     if (s_room_btn) {
                         lv_obj_t* lbl = lv_obj_get_child(s_room_btn, 0);
                         if (lbl) lv_label_set_text(lbl, new_label.c_str());

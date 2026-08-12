@@ -609,7 +609,9 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
     }
 
     PlaybackState next;
-    next.transport_state   = ts;
+    // Hold the prior state through a transient TRANSITIONING (see event path).
+    next.transport_state   = (ts == TransportState::Transitioning)
+                                 ? prev.transport_state : ts;
     next.title             = title;
     next.artist            = artist;
     next.album             = album;
@@ -754,7 +756,11 @@ void sonos::playback::ingest_event_transport(const sonos::gena::AVTransportEvent
         s_state.track_uri     = ev.track_uri;
     }
     if (ev.has_duration) s_state.duration_s = ev.duration_s;
-    if (ev.has_transport) {
+    // TRANSITIONING is a transient with no distinct UI (it would render as the
+    // paused icon). Hold the current/optimistic state through it and only apply
+    // terminal states — otherwise a slow (buffering) transition that outlasts the
+    // optimistic guard briefly flips the play/pause icon backwards.
+    if (ev.has_transport && ts != TransportState::Transitioning) {
         transport_changed = (s_state.transport_state != ts);
         s_state.transport_state = ts;
     }

@@ -118,11 +118,6 @@ void accent::bind(lv_obj_t* obj, lv_style_prop_t prop) {
                 lv_obj_set_style_border_color(o, c, s);
             };
             break;
-        case LV_STYLE_SHADOW_COLOR:
-            fn = [](lv_obj_t* o, lv_color_t c, lv_style_selector_t s) {
-                lv_obj_set_style_shadow_color(o, c, s);
-            };
-            break;
         default:
             return; // unsupported property — ignore silently
     }

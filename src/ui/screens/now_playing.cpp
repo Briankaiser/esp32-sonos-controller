@@ -11,6 +11,7 @@
 #include "../../app/sonos/state.h"
 #include "../../bsp/bsp.h"
 #include <lvgl.h>
+#include <math.h>
 
 // ── Static widget handles (UI task only) ──────────────────────────────────────
 
@@ -119,17 +120,16 @@ lv_obj_t* screens::now_playing_create() {
     // ── SLOT_TRACK_INFO — frosted overlay band with three stacked labels ──────
     lv_obj_t* info = slot_container(scr, SLOT_TRACK_INFO);
     // Frosted dark backdrop so art is visible but text stays readable — same
-    // "illuminated surface" language as the modal overlays: dark fill, accent
-    // hairline border, and a soft accent glow (both track the album-art accent).
+    // "illuminated surface" language as the modal overlays: dark fill and an
+    // accent hairline border that tracks the album-art accent. No blur glow
+    // here: this band sits over full-bleed art that repaints on every track
+    // change, and a shadow would re-blur with it for no real visual gain.
     lv_obj_set_style_bg_color(info, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(info, LV_OPA_50, 0);
     lv_obj_set_style_radius(info, 18, 0);
     lv_obj_set_style_border_width(info, 1, 0);
-    lv_obj_set_style_border_opa(info, LV_OPA_40, 0);
+    lv_obj_set_style_border_opa(info, LV_OPA_50, 0);
     accent::bind(info, LV_STYLE_BORDER_COLOR);
-    lv_obj_set_style_shadow_width(info, 16, 0);
-    lv_obj_set_style_shadow_opa(info, LV_OPA_20, 0);
-    accent::bind(info, LV_STYLE_SHADOW_COLOR);
     lv_obj_set_layout(info, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(info, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -193,12 +193,13 @@ lv_obj_t* screens::now_playing_create() {
         lv_obj_set_style_border_width(btn, 0, 0);
         lv_obj_set_style_shadow_width(btn, 0, 0);
         if (primary) {
-            lv_obj_set_style_border_width(btn, 2, 0);
-            lv_obj_set_style_border_opa(btn, LV_OPA_60, 0);
+            // Bold accent ring marks the primary control. A blur-shadow "glow"
+            // was tried here but re-blurred on every overlapping redraw (arc,
+            // art refresh, 1s interpolation) and hurt responsiveness — a crisp
+            // ring gives the same emphasis for near-zero render cost.
+            lv_obj_set_style_border_width(btn, 3, 0);
+            lv_obj_set_style_border_opa(btn, LV_OPA_COVER, 0);
             accent::bind(btn, LV_STYLE_BORDER_COLOR);
-            lv_obj_set_style_shadow_width(btn, 16, 0);
-            lv_obj_set_style_shadow_opa(btn, LV_OPA_30, 0);
-            accent::bind(btn, LV_STYLE_SHADOW_COLOR);
         }
         lv_obj_t* lbl = lv_label_create(btn);
         lv_label_set_text(lbl, symbol);
@@ -251,8 +252,23 @@ lv_obj_t* screens::now_playing_create() {
         // 97% of the 480×480 slot → 466×466 arc, visual radius ≈232px (near display edge)
         lv_obj_set_size(s_volume_arc, lv_pct(97), lv_pct(97));
         lv_obj_align(s_volume_arc, LV_ALIGN_CENTER, 0, 0);
-        lv_arc_set_rotation(s_volume_arc, 135);
-        lv_arc_set_bg_angles(s_volume_arc, 0, 270);
+        // Hug the bottom of the disc, symmetric about 6 o'clock, with the two
+        // ends level with the bottom edge of the track-info card. Both offsets
+        // derive from the card slot + arc radius, so nothing is hardcoded and
+        // it stays correct if the layout changes. LVGL angles: 0°=3 o'clock,
+        // increasing clockwise, so [end_off, 180-end_off] sweeps through the
+        // bottom (90°).
+        {
+            int32_t arc_r = (kDisplay.h * 97 / 100) / 2;
+            int32_t drop  = (slot(SLOT_TRACK_INFO).y + slot(SLOT_TRACK_INFO).h)
+                            - kDisplay.h / 2;  // card-bottom offset below centre
+            float ratio = (float)drop / (float)arc_r;
+            if (ratio > 1.0f) ratio = 1.0f;
+            int32_t end_off = (int32_t)(asinf(ratio) * 180.0f / 3.14159265f);
+            lv_arc_set_rotation(s_volume_arc, 0);
+            lv_arc_set_bg_angles(s_volume_arc, end_off, 180 - end_off);
+        }
+        lv_arc_set_mode(s_volume_arc, LV_ARC_MODE_REVERSE);  // fills from the left end
         lv_arc_set_value(s_volume_arc, 50);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0xD4A843), LV_PART_INDICATOR);
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_INDICATOR);

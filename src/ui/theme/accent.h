@@ -19,10 +19,8 @@ void set(lv_color_t color, uint32_t duration_ms = 400);
 /// Return the current accent colour (pre-transition value).
 lv_color_t get();
 
-/// Register an lv_obj_t* whose bg/border/arc/shadow colour tracks the accent
-/// token. The object's style is updated automatically when set() is called.
-/// Supported props: LV_STYLE_BG_COLOR, LV_STYLE_BORDER_COLOR,
-/// LV_STYLE_ARC_COLOR (INDICATOR), LV_STYLE_SHADOW_COLOR.
+/// Register an lv_obj_t* whose bg/border/arc colour tracks the accent token.
+/// The object's style is updated automatically when set() is called.
 void bind(lv_obj_t* obj, lv_style_prop_t prop);
 
 /// Bind the LV_PART_INDICATOR bg_color to the accent (for bars).

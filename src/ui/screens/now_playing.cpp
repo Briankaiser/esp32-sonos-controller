@@ -487,7 +487,20 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
             LV_PART_INDICATOR);
     }
 
-    // Update album art and accent when a new decode is ready
+    // Album art is applied by now_playing_refresh_art(), driven every UI frame
+    // from the main loop — decoupled from playback-state changes so a freshly
+    // decoded frame appears within a frame rather than waiting for the next
+    // pb.version bump (which, under eventing, may be tens of seconds away).
+    now_playing_refresh_art();
+}
+
+// ── now_playing_refresh_art ─────────────────────────────────────────────────
+// Applies the latest decoded album art (and its accent) to the screen when a
+// new decode is ready. Idempotent: no-ops when the art version is unchanged,
+// so it is safe — and cheap — to call every UI frame. MUST run on the UI task
+// (core 1) only, like all other lv_* calls here.
+void screens::now_playing_refresh_art() {
+    if (!s_art_img) return;  // screen not built yet
     ArtState art = art::snapshot();
     if (art.version != s_art_version && art.pixels != nullptr) {
         s_art_version               = art.version;
@@ -500,10 +513,8 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
         s_art_dsc.data              = art.pixels;
         lv_image_set_src(s_art_img, &s_art_dsc);
         lv_obj_remove_flag(s_art_img, LV_OBJ_FLAG_HIDDEN);
-
         lv_color_t adjusted = accent::adjusted_for_legibility(
             art.accent, lv_color_hex(0x1A1A1A));
         accent::set(adjusted, 400);
     }
-
 }

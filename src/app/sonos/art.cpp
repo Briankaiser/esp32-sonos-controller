@@ -276,7 +276,9 @@ static void fetch_and_decode(const String& url,
 
     s_decoded_w = dec_w;
 
+    uint32_t t_dec = millis();
     int ok = s_jpeg.decode(0, 0, scale);
+    uint32_t decode_ms = millis() - t_dec;
     s_jpeg.close();
 
     if (!ok) {
@@ -308,9 +310,10 @@ static void fetch_and_decode(const String& url,
     s_state.version++;
     xSemaphoreGive(s_mutex);
 
-    Serial.printf("[Art] decoded %ux%u accent=#%02X%02X%02X\n",
+    Serial.printf("[Art] decoded %ux%u accent=#%02X%02X%02X (fetch %lums, decode %lums)\n",
                   dec_w, dec_h,
-                  (unsigned)accent.red, (unsigned)accent.green, (unsigned)accent.blue);
+                  (unsigned)accent.red, (unsigned)accent.green, (unsigned)accent.blue,
+                  (unsigned long)s_last_fetch_ms, (unsigned long)decode_ms);
 }
 
 // ── Art task body ─────────────────────────────────────────────────────────────

@@ -361,6 +361,13 @@ static void ui_task(void* /*arg*/) {
             }
         }
 
+        // Apply freshly decoded album art independently of playback-state
+        // changes. Under eventing, pb.version can stay quiescent for tens of
+        // seconds between events, so gating art application on it left a
+        // decoded frame unshown until the next bump. This is idempotent and
+        // cheap when the art version is unchanged.
+        screens::now_playing_refresh_art();
+
         // Yield up to one LVGL refresh period. Encoder/button events are ISR-driven
         // so nothing is missed; LVGL governs render cadence via LV_DEF_REFR_PERIOD.
         uint32_t delay_ms = (next_ms < 1) ? 1 : (next_ms > 16 ? 16 : next_ms);

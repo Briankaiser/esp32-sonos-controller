@@ -27,6 +27,22 @@ static String speaker_label(const SpeakerInfo& sp) {
     return sp.friendly_name + " - " + sp.model_name;
 }
 
+// Case-insensitive ordering by friendly name so room/speaker lists in every
+// modal read alphabetically regardless of discovery order. Ties fall back to
+// uuid for a stable order between rebuilds.
+static bool speaker_name_less(const SpeakerInfo& a, const SpeakerInfo& b) {
+    auto lc = [](char c) -> char { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; };
+    const String& an = a.friendly_name;
+    const String& bn = b.friendly_name;
+    uint32_t n = an.length() < bn.length() ? an.length() : bn.length();
+    for (uint32_t i = 0; i < n; i++) {
+        char ca = lc(an[i]), cb = lc(bn[i]);
+        if (ca != cb) return ca < cb;
+    }
+    if (an.length() != bn.length()) return an.length() < bn.length();
+    return a.uuid < b.uuid;
+}
+
 static lv_obj_t* make_list_btn(lv_obj_t* list, const char* text) {
     lv_obj_t* btn = lv_list_add_button(list, nullptr, text);
     apply_list_btn_style(btn, lv_color_hex(0xEEEEEE));
@@ -150,6 +166,8 @@ static void settings_open_room_picker(lv_event_t*) {
     lv_obj_t* list = make_inner_list(card, cw, 52, ch - 52 - 72);
 
     SonosState st = sonos::state::snapshot();
+    // Alphabetical by friendly name (room picker doesn't index into speakers).
+    std::sort(st.speakers.begin(), st.speakers.end(), speaker_name_less);
 
     if (st.speakers.empty()) {
         lv_obj_t* btn = lv_list_add_button(list, nullptr, "No speakers found");
@@ -300,6 +318,11 @@ static void settings_open_group_overlay(lv_event_t*) {
             nav::clear_list();
         }, LV_EVENT_CLICKED, nullptr);
     }
+
+    // Alphabetical by friendly name. Safe to reorder here: home_uuid and
+    // group_member_uuids were already resolved above and the loop keys off
+    // sp.uuid, not speaker index.
+    std::sort(st.speakers.begin(), st.speakers.end(), speaker_name_less);
 
     for (const auto& sp : st.speakers) {
         if (sp.uuid == home_uuid) continue;

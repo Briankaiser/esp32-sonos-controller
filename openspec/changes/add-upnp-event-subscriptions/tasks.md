@@ -13,25 +13,26 @@
 - [x] 1.2 Implement SUBSCRIBE / renewal (SID-based) / UNSUBSCRIBE HTTP requests with granted-TIMEOUT parsing (missing header → 300s) and backoff retry (5s/15s/60s) on failure
 - [x] 1.3 Implement raw NOTIFY listener: `WiFiServer` on dedicated port (3400), minimal request parsing (SID/SEQ/Content-Length), single 32 KB PSRAM body buffer, immediate 200 ACK, oversized bodies drained and discarded
 - [x] 1.4 Create `event_task` (core 0, prio 3) in `main.cpp` running the accept/renewal loop; establish the three subscriptions (AVTransport@coordinator, RenderingControl@home room, ZoneGroupTopology@home room) once the home room resolves
-- [ ] 1.5 **[hardware]** Flash and verify against real speakers: initial SEQ-0 events arrive, renewals succeed, granted lease duration observed and noted (device-side logging is in place; `tools/mock_gena_speaker.py` available for bench testing)
+- [x] 1.5 **[hardware]** Flash and verify against real speakers: initial SEQ-0 events arrive, renewals succeed, granted lease duration observed and noted (device-side logging is in place; `tools/mock_gena_speaker.py` available for bench testing)
+  - Verified 2026-08-11 on CrowPanel 2.1" round against a 17-speaker LAN (home room = Sonos Roam `RINCON_38420B32A65E01400`). Clean boot, no crash. All three services SUBSCRIBE ok. **Granted lease = 3600s** (Sonos honored the requested `Second-3600`). Initial SEQ-0 events populate state (art decoded with polling suspended). Renewal directly observed at half-lease via a temporary short-lease (`Second-120`) build: all three services renewed at ~60s (`renew AVTransport/RenderingControl/ZoneGroupTopology ok`); temp changes reverted and production 3600s build reflashed.
 
 ## 2. Phase 2 — RenderingControl ingestion (volume/mute)
 
 - [x] 2.1 Parse the double-encoded LastChange payload for Master volume and mute (`gena_parse.cpp`, host-tested)
-- [x] 2.2 Ingest into `sonos::playback` state via the existing mutex-protected write path (`ingest_event_rendering`) — **[hardware]** verify phone-app volume changes appear on the arc within 1s
+- [x] 2.2 Ingest into `sonos::playback` state via the existing mutex-protected write path (`ingest_event_rendering`) — **[hardware]** verify phone-app volume changes appear on the arc within 1s — *verified 2026-08-11: app volume changes reflect on the arc via RenderingControl NOTIFY*
 - [x] 2.3 Add local-echo suppression: inbound volume ignored while a SetVolume flush is pending or within ~1.5s of one when values differ; confirming values retire the optimistic desired volume (mute ingests unconditionally)
 
 ## 3. Phase 3 — AVTransport ingestion (transport + metadata)
 
 - [x] 3.1 Parse LastChange TransportState and CurrentTrackMetaData DIDL (title, artist, album, art URI, duration) — host-tested including triple-encoded entities
-- [x] 3.2 Ingest transport/metadata into `sonos::playback` (`ingest_event_transport`, with the same optimistic-transport guard as polls); trigger `art::notify_new_uri()` on art URI change — **[hardware]** verify app-initiated play/pause/skip appears on-device within 1s
+- [x] 3.2 Ingest transport/metadata into `sonos::playback` (`ingest_event_transport`, with the same optimistic-transport guard as polls); trigger `art::notify_new_uri()` on art URI change — **[hardware]** verify app-initiated play/pause/skip appears on-device within 1s — *verified 2026-08-11: app-initiated track changes fire AVTransport NOTIFY and decode new art within ~1s (observed on serial)*
 - [x] 3.3 Re-target the AVTransport subscription when the home room's coordinator changes: unsubscribe old, subscribe new, discard NOTIFYs with stale SIDs
 
 ## 4. Phase 4 — ZoneGroupTopology ingestion
 
 - [x] 4.1 Parse ZoneGroupState event bodies via the shared topology parser (extracted from discovery.cpp; never drops speakers absent from an event); refresh coordinator resolution (`discovery::ingest_topology_xml`)
 - [x] 4.2 Oversized topology event → drain, ACK, fall back to SOAP fetch (`discovery::refresh_topology_via_soap`)
-- [ ] 4.3 **[hardware]** Verify: grouping/ungrouping from the phone app updates the group overlay and coordinator targeting within a few seconds
+- [x] 4.3 **[hardware]** Verify: grouping/ungrouping from the phone app updates the group overlay and coordinator targeting within a few seconds — *verified 2026-08-11: app grouping changes push ZoneGroupTopology NOTIFY (`[Sonos] topology updated`) between discovery cycles*
 
 ## 5. Phase 5 — Demote polling, health fallback, reconnection
 

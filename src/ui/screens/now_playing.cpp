@@ -169,7 +169,7 @@ lv_obj_t* screens::now_playing_create() {
     s_transport_cont = slot_container(scr, SLOT_TRANSPORT);
     {
         const LayoutSlot& ts = slot(SLOT_TRANSPORT);
-        int32_t grow = ts.w / 8;  // symmetric widen per side
+        int32_t grow = ts.w / 10;  // gentle symmetric widen per side
         lv_obj_set_pos(s_transport_cont, ts.x - grow, ts.y);
         lv_obj_set_size(s_transport_cont, ts.w + 2 * grow, ts.h);
     }
@@ -184,7 +184,7 @@ lv_obj_t* screens::now_playing_create() {
     // primary without a brighter glyph. Ring and glow track the album-art
     // accent via accent::bind.
     auto make_disc = [&](const char* symbol, bool primary) -> lv_obj_t* {
-        int32_t d = slot(SLOT_TRANSPORT).h;  // diameter = row height
+        int32_t d = slot(SLOT_TRANSPORT).h * 6 / 5;  // discs a touch larger than the row
         lv_obj_t* btn = lv_button_create(s_transport_cont);
         lv_obj_set_size(btn, d, d);
         lv_obj_set_style_bg_color(btn, lv_color_black(), 0);
@@ -245,7 +245,7 @@ lv_obj_t* screens::now_playing_create() {
 
     // ── SLOT_VOLUME_ARC — visual placeholder (no command wiring until add-encoder-volume) ──
     lv_obj_t* vol_cont = layout_container(scr, SLOT_VOLUME_ARC);
-    lv_obj_remove_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // sits above transport — must not absorb touch
+    lv_obj_remove_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // must not absorb touch meant for the art
     if constexpr (kDisplay.has_encoder) {
         s_volume_arc = lv_arc_create(vol_cont);
         // 97% of the 480×480 slot → 466×466 arc, visual radius ≈232px (near display edge)
@@ -260,6 +260,8 @@ lv_obj_t* screens::now_playing_create() {
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_MAIN);
         lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(s_volume_arc, true, LV_PART_INDICATOR);  // rounded fill cap
+        lv_obj_set_style_arc_rounded(s_volume_arc, true, LV_PART_MAIN);       // rounded track ends
         lv_obj_remove_flag(s_volume_arc, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(s_volume_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     } else {
@@ -268,6 +270,10 @@ lv_obj_t* screens::now_playing_create() {
         lv_obj_align(slider, LV_ALIGN_CENTER, 0, 0);
         lv_slider_set_value(slider, 50, LV_ANIM_OFF);
     }
+    // Drop the arc just above the album-art background so the transport discs
+    // (and everything else) layer visually on top of it where they overlap at
+    // the edge, rather than the arc drawing over the discs.
+    lv_obj_move_to_index(vol_cont, 1);
 
     // ── SLOT_STATUS — settings entry point (gear icon) ──────────────────────
     s_status_cont = slot_container(scr, SLOT_STATUS);

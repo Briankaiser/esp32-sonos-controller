@@ -375,6 +375,9 @@ static void update_health() {
             sonos::playback::notify_poll_task();
         } else {
             Serial.println("[GENA] eventing unhealthy — falling back to polling");
+            // Wake sonos_task immediately so it starts full polling now rather
+            // than sleeping until the current poll_interval_ms expires.
+            sonos::playback::notify_poll_task();
         }
     }
 }

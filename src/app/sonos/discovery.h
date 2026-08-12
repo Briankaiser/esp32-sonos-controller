@@ -4,6 +4,17 @@
 
 namespace sonos::discovery {
     constexpr uint32_t kDiscoveryIntervalMs = 600000;  // 10 min: speakers rarely change IP
+
+    // When the provisioned home room is absent from a discovery cycle (e.g. a
+    // battery Sonos Roam that was asleep), re-run discovery on a short cadence
+    // instead of waiting the full kDiscoveryIntervalMs, so the controller
+    // recovers within seconds of the speaker rejoining. Backs off after an
+    // initial fast window so a speaker that stays off (charger overnight,
+    // provisioning UUID mismatch) does not hammer SSDP/SOAP indefinitely.
+    constexpr uint32_t kHomeRoomFastRetryMs   = 5000;    // retry every 5s...
+    constexpr uint32_t kHomeRoomFastWindowMs  = 120000;  // ...for the first 2 min unresolved...
+    constexpr uint32_t kHomeRoomSlowRetryMs   = 60000;   // ...then back off to every 60s
+
     void run_cycle();
 
     // Event-driven topology ingestion (called from event_task, eventing.cpp).

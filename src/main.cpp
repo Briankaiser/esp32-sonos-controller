@@ -169,6 +169,7 @@ static void sonos_task(void* /*arg*/) {
     uint8_t  s_volume_skip       = 0;
     uint32_t s_last_heap_log_ms  = 0;
     uint32_t s_last_pos_resync_ms = 0;    // event mode: last GetPositionInfo resync
+    uint32_t s_home_room_unresolved_since_ms = 0;  // 0 = resolved; else when it first went missing
     bool     s_favorites_loaded  = false; // latches once fetch succeeds — avoids
                                            // a FavoritesState deep-copy every poll
 
@@ -187,6 +188,7 @@ static void sonos_task(void* /*arg*/) {
         uint32_t cycle_start_ms = millis();
         while (millis() - cycle_start_ms < sonos::discovery::kDiscoveryIntervalMs) {
             if (st.home_room_idx >= 0) {
+                s_home_room_unresolved_since_ms = 0;  // resolved — clear retry backoff
                 const SpeakerInfo& hr = st.speakers[st.home_room_idx];
 
                 // When home room is a group member, poll the coordinator for track info.
@@ -255,15 +257,30 @@ static void sonos_task(void* /*arg*/) {
                         art::notify_new_uri();
                     }
                 }
+                // Use task notification instead of plain delay: enqueue_command()
+                // notifies us, so we wake immediately when a command arrives instead
+                // of waiting the full poll interval.
+                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(sonos::playback::poll_interval_ms()));
+                // Re-snapshot so a freshly resolved home room is picked up mid-cycle
+                st = sonos::state::snapshot();
             } else {
-                Serial.println("[Playback] no home room — skipping poll");
+                // Home room absent from this discovery cycle (e.g. a battery Sonos
+                // Roam that was asleep). Retry discovery on a short cadence — fast at
+                // first, then backing off — instead of idling the full
+                // kDiscoveryIntervalMs, so the controller recovers within seconds of
+                // the speaker rejoining. Break to re-run discovery immediately.
+                if (s_home_room_unresolved_since_ms == 0)
+                    s_home_room_unresolved_since_ms = millis();
+                uint32_t unresolved_for = millis() - s_home_room_unresolved_since_ms;
+                uint32_t retry_ms =
+                    (unresolved_for < sonos::discovery::kHomeRoomFastWindowMs)
+                        ? sonos::discovery::kHomeRoomFastRetryMs
+                        : sonos::discovery::kHomeRoomSlowRetryMs;
+                Serial.printf("[Playback] no home room — retrying discovery in %lus\n",
+                              (unsigned long)(retry_ms / 1000));
+                vTaskDelay(pdMS_TO_TICKS(retry_ms));
+                break;
             }
-            // Use task notification instead of plain delay: enqueue_command() notifies
-            // us, so we wake immediately when a command arrives instead of waiting the
-            // full poll interval.
-            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(sonos::playback::poll_interval_ms()));
-            // Re-snapshot so a freshly resolved home room is picked up mid-cycle
-            st = sonos::state::snapshot();
         }
     }
 }

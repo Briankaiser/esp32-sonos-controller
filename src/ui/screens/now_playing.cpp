@@ -118,10 +118,18 @@ lv_obj_t* screens::now_playing_create() {
 
     // ── SLOT_TRACK_INFO — frosted overlay band with three stacked labels ──────
     lv_obj_t* info = slot_container(scr, SLOT_TRACK_INFO);
-    // Frosted dark backdrop so art is visible but text stays readable
+    // Frosted dark backdrop so art is visible but text stays readable — same
+    // "illuminated surface" language as the modal overlays: dark fill, accent
+    // hairline border, and a soft accent glow (both track the album-art accent).
     lv_obj_set_style_bg_color(info, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(info, LV_OPA_50, 0);
-    lv_obj_set_style_radius(info, 12, 0);
+    lv_obj_set_style_radius(info, 18, 0);
+    lv_obj_set_style_border_width(info, 1, 0);
+    lv_obj_set_style_border_opa(info, LV_OPA_40, 0);
+    accent::bind(info, LV_STYLE_BORDER_COLOR);
+    lv_obj_set_style_shadow_width(info, 16, 0);
+    lv_obj_set_style_shadow_opa(info, LV_OPA_20, 0);
+    accent::bind(info, LV_STYLE_SHADOW_COLOR);
     lv_obj_set_layout(info, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(info, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -152,48 +160,62 @@ lv_obj_t* screens::now_playing_create() {
     lv_label_set_long_mode(s_album_lbl, LV_LABEL_LONG_DOT);
     lv_obj_set_size(s_album_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Body)));
 
-    // ── SLOT_TRANSPORT — prev / play-pause / next button row ─────────────────
+    // ── SLOT_TRANSPORT — prev / play-pause / next as equal circular discs ────
+    // Widen the row symmetrically about the display centre so the outer discs
+    // reach the bezel by an equal amount on each side — an intentional,
+    // symmetric bleed rather than the lopsided clip of a left-packed flex row.
+    // All geometry derives from the slot (already centred), so no pixel
+    // literals or board names leak into screen code.
     s_transport_cont = slot_container(scr, SLOT_TRANSPORT);
+    {
+        const LayoutSlot& ts = slot(SLOT_TRANSPORT);
+        int32_t grow = ts.w / 8;  // symmetric widen per side
+        lv_obj_set_pos(s_transport_cont, ts.x - grow, ts.y);
+        lv_obj_set_size(s_transport_cont, ts.w + 2 * grow, ts.h);
+    }
     lv_obj_set_layout(s_transport_cont, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s_transport_cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_transport_cont,
-        LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    // Previous
-    lv_obj_t* prev_btn = lv_button_create(s_transport_cont);
-    lv_obj_set_flex_grow(prev_btn, 1);
-    lv_obj_set_height(prev_btn, lv_pct(100));
-    lv_obj_set_style_bg_color(prev_btn, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(prev_btn, LV_OPA_40, 0);  // translucent disc so icon pops on light art
-    lv_obj_set_style_radius(prev_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_margin_hor(prev_btn, 4, 0);
-    lv_obj_set_style_border_width(prev_btn, 0, 0);
-    lv_obj_set_style_shadow_width(prev_btn, 0, 0);
-    lv_obj_t* prev_lbl = lv_label_create(prev_btn);
-    lv_label_set_text(prev_lbl, LV_SYMBOL_PREV);
-    lv_obj_set_style_text_font(prev_lbl, font(FontRole::Display), 0);
-    lv_obj_set_style_text_color(prev_lbl, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_center(prev_lbl);
+    // One circular transport disc. All three share a size and icon colour; the
+    // primary (play/pause) carries a thin accent ring + soft accent glow — the
+    // same "illuminated" emphasis the modal overlays use — so it reads as
+    // primary without a brighter glyph. Ring and glow track the album-art
+    // accent via accent::bind.
+    auto make_disc = [&](const char* symbol, bool primary) -> lv_obj_t* {
+        int32_t d = slot(SLOT_TRANSPORT).h;  // diameter = row height
+        lv_obj_t* btn = lv_button_create(s_transport_cont);
+        lv_obj_set_size(btn, d, d);
+        lv_obj_set_style_bg_color(btn, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_40, 0);  // translucent disc so icon pops on light art
+        lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_shadow_width(btn, 0, 0);
+        if (primary) {
+            lv_obj_set_style_border_width(btn, 2, 0);
+            lv_obj_set_style_border_opa(btn, LV_OPA_60, 0);
+            accent::bind(btn, LV_STYLE_BORDER_COLOR);
+            lv_obj_set_style_shadow_width(btn, 16, 0);
+            lv_obj_set_style_shadow_opa(btn, LV_OPA_30, 0);
+            accent::bind(btn, LV_STYLE_SHADOW_COLOR);
+        }
+        lv_obj_t* lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, symbol);
+        lv_obj_set_style_text_font(lbl, font(FontRole::Display), 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xCCCCCC), 0);
+        lv_obj_center(lbl);
+        return btn;
+    };
+
+    lv_obj_t* prev_btn = make_disc(LV_SYMBOL_PREV, false);
     lv_obj_add_event_cb(prev_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Previous);
         dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
-    // Play/Pause
-    lv_obj_t* play_btn = lv_button_create(s_transport_cont);
-    lv_obj_set_flex_grow(play_btn, 1);
-    lv_obj_set_height(play_btn, lv_pct(100));
-    lv_obj_set_style_bg_color(play_btn, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(play_btn, LV_OPA_40, 0);
-    lv_obj_set_style_radius(play_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_margin_hor(play_btn, 4, 0);
-    lv_obj_set_style_border_width(play_btn, 0, 0);
-    lv_obj_set_style_shadow_width(play_btn, 0, 0);
-    s_play_btn_lbl = lv_label_create(play_btn);
-    lv_label_set_text(s_play_btn_lbl, LV_SYMBOL_PLAY);
-    lv_obj_set_style_text_font(s_play_btn_lbl, font(FontRole::Display), 0);
-    lv_obj_set_style_text_color(s_play_btn_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(s_play_btn_lbl);
+    lv_obj_t* play_btn = make_disc(LV_SYMBOL_PLAY, true);
+    s_play_btn_lbl = lv_obj_get_child(play_btn, 0);
     lv_obj_add_event_cb(play_btn, [](lv_event_t*) {
         bool playing = s_last.transport_state == sonos::TransportState::Playing;
         sonos::playback::enqueue_command(
@@ -203,21 +225,7 @@ lv_obj_t* screens::now_playing_create() {
         dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
-    // Next
-    lv_obj_t* next_btn = lv_button_create(s_transport_cont);
-    lv_obj_set_flex_grow(next_btn, 1);
-    lv_obj_set_height(next_btn, lv_pct(100));
-    lv_obj_set_style_bg_color(next_btn, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(next_btn, LV_OPA_40, 0);
-    lv_obj_set_style_radius(next_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_margin_hor(next_btn, 4, 0);
-    lv_obj_set_style_border_width(next_btn, 0, 0);
-    lv_obj_set_style_shadow_width(next_btn, 0, 0);
-    lv_obj_t* next_lbl = lv_label_create(next_btn);
-    lv_label_set_text(next_lbl, LV_SYMBOL_NEXT);
-    lv_obj_set_style_text_font(next_lbl, font(FontRole::Display), 0);
-    lv_obj_set_style_text_color(next_lbl, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_center(next_lbl);
+    lv_obj_t* next_btn = make_disc(LV_SYMBOL_NEXT, false);
     lv_obj_add_event_cb(next_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Next);
         dim_transport();
@@ -229,6 +237,9 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_size(s_progress_bar, lv_pct(100), lv_pct(100));
     lv_bar_set_range(s_progress_bar, 0, 100);
     lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
+    // Stadium caps on both track and fill to match the pill vocabulary
+    lv_obj_set_style_radius(s_progress_bar, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_progress_bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
     accent::bind_indicator(s_progress_bar);      // fill tracks accent color
     accent::bind_contrast_track(s_progress_bar); // track is white/black for contrast
 

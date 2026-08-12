@@ -49,7 +49,7 @@
 
 - [x] 6.1 Both PlatformIO envs build (`crowpanel_21_round`, `ref_rect_stub`); host parser tests pass (`pio test -e test_native`, test_gena 27/27)
 - [ ] 6.2 **[hardware]** Soak test: leave device running ≥12h with periodic app-side changes; confirm renewals hold, no reboots, heap stable (debug overlay)
-  - Soak started 2026-08-12 10:15:19 CDT. Clean boot, eventing healthy, lease 3600s. First renewal expected at T≈1813s (~10:45 CDT). Soak target: complete by 2026-08-13 10:15 CDT. Serial log at `serial_soak.log`. Check: no `[Reboot]`/`[Panic]` lines, renewals log nothing (silent on success, only failure logged), heap free stays above 80KB (check `/screenshot` debug overlay).
+  - Soak started 2026-08-12 10:15:19 CDT. Clean boot, eventing healthy, lease 3600s. Baseline heap at T=622s: free=133268 min_free=94588. Soak target: complete by 2026-08-13 10:15 CDT. To close: reconnect serial, confirm no `[GENA] eventing unhealthy` or reboot lines, and heap free ≥80KB steady (or `/screenshot` debug overlay).
 - [x] 6.3 **[hardware]** Socket-budget check under load: NOTIFY burst + `/screenshot` + album-art fetch concurrently, all succeed
   - Verified 2026-08-12. SOAP Next fired directly to Roam while screenshot download was mid-flight + /rooms polled concurrently. All three returned exit=0. Serial log: art decoded 320×320 accent=#99968A (fetch 616ms, decode 238ms) during the window; no socket errors, no heap warnings, eventing stayed healthy throughout.
 - [x] 6.4 `openspec validate --all --strict` clean; CHANGELOG.md entry under `[Unreleased]`

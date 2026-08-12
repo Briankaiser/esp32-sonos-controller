@@ -783,20 +783,28 @@ void sonos::playback::ingest_event_rendering(const sonos::gena::RenderingControl
         int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
         if (desired >= 0) {
             if ((uint8_t)desired == ev.volume) {
-                // Speaker confirmed our optimistic value — retire it and apply.
+                // Speaker confirmed our target — retire the optimistic value and
+                // apply unconditionally. This is a confirmation, not an echo, so
+                // it must NOT be subject to the flush-window suppression below;
+                // during rapid turning s_state.volume always differs from the new
+                // value, so applying the window check here would drop the very
+                // event that confirms our write and freeze s_state.volume.
                 s_desired_volume.store(-1, std::memory_order_relaxed);
             } else {
-                apply_volume = false;  // flush pending — event is stale echo
+                apply_volume = false;  // a newer desired is pending — event is stale
             }
-        }
-        // Within 1.5s of a local SetVolume, differing values are echoes of our
-        // own rapid writes racing the encoder — the desired model stays authoritative.
-        uint32_t last_flush = s_last_volume_flush_ms.load(std::memory_order_relaxed);
-        if (apply_volume && (uint32_t)(millis() - last_flush) < 1500u) {
-            xSemaphoreTake(s_mutex, portMAX_DELAY);
-            bool differs = (s_state.volume != ev.volume);
-            xSemaphoreGive(s_mutex);
-            if (differs) apply_volume = false;
+        } else {
+            // No pending write of our own. Within 1.5s of a local SetVolume, a
+            // value differing from confirmed state is an echo of our own rapid
+            // writes racing the encoder (or a late/out-of-order event) — ignore it
+            // so a stale echo can't stomp the value we already settled on.
+            uint32_t last_flush = s_last_volume_flush_ms.load(std::memory_order_relaxed);
+            if ((uint32_t)(millis() - last_flush) < 1500u) {
+                xSemaphoreTake(s_mutex, portMAX_DELAY);
+                bool differs = (s_state.volume != ev.volume);
+                xSemaphoreGive(s_mutex);
+                if (differs) apply_volume = false;
+            }
         }
     }
 

@@ -57,8 +57,9 @@ struct Sub {
     uint32_t retry_at_ms = 0;
 };
 
-static Sub               s_subs[kNumServices];      // event_task only
+static Sub               s_subs[kNumServices];        // event_task only
 static std::atomic<bool> s_healthy{false};
+static std::atomic<bool> s_reset_pending{false};
 static char*             s_body_buf = nullptr;      // kNotifyBodyCap, PSRAM
 static WiFiServer        s_server(sonos::eventing::kNotifyPort);
 static bool              s_server_started = false;
@@ -82,6 +83,10 @@ void sonos::eventing::init() {
 
 bool sonos::eventing::healthy() {
     return s_healthy.load(std::memory_order_relaxed);
+}
+
+void sonos::eventing::request_reset() {
+    s_reset_pending.store(true, std::memory_order_relaxed);
 }
 
 // ── HTTP client for SUBSCRIBE / UNSUBSCRIBE ───────────────────────────────────
@@ -402,6 +407,9 @@ static void event_task(void* /*arg*/) {
         if (ip != s_local_ip) {
             if (s_local_ip != IPAddress()) drop_all_subscriptions("IP changed");
             s_local_ip = ip;
+        }
+        if (s_reset_pending.exchange(false, std::memory_order_relaxed)) {
+            drop_all_subscriptions("home room changed");
         }
         if (!s_server_started) {
             s_server.begin();

@@ -16,7 +16,8 @@ namespace sonos::eventing {
 
     constexpr uint16_t kNotifyPort = 3400;  // inbound NOTIFY listener
 
-    void init();        // allocate NOTIFY body buffer (PSRAM); call from setup()
-    void start_task();  // spawn event_task on core 0; call after init()
-    bool healthy();     // all three subscriptions established and renewing
+    void init();           // allocate NOTIFY body buffer (PSRAM); call from setup()
+    void start_task();     // spawn event_task on core 0; call after init()
+    bool healthy();        // all three subscriptions established and renewing
+    void request_reset();  // any task: drop all subscriptions on next event_task tick
 }

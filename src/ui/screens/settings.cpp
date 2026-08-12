@@ -3,6 +3,7 @@
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
 #include "../../app/sonos/playback.h"
+#include "../../app/sonos/eventing.h"
 #include "../../app/sonos/state.h"
 #include "../../services/prefs.h"
 #include "../theme/accent.h"
@@ -202,6 +203,11 @@ static void settings_open_room_picker(lv_event_t*) {
                         }
                     }
                     sonos::state::update(st2);
+                    // Drop GENA subscriptions so event_task re-subscribes to the
+                    // new speaker; healthy() goes false, so sonos_task falls back
+                    // to polling and fetches fresh state from the new room.
+                    sonos::eventing::request_reset();
+                    sonos::playback::notify_poll_task();
                     if (s_room_btn) {
                         lv_obj_t* lbl = lv_obj_get_child(s_room_btn, 0);
                         if (lbl) lv_label_set_text(lbl, new_label.c_str());

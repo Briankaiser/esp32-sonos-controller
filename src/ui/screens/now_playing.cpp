@@ -6,6 +6,7 @@
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
 #include "../theme/accent.h"
+#include "list_btn.h"
 #include "../../app/sonos/art.h"
 #include "../../app/sonos/state.h"
 #include "../../bsp/bsp.h"
@@ -29,8 +30,6 @@ static lv_obj_t*          s_loading_overlay    = nullptr;
 static bool               s_loading_dismissed  = false;
 static lv_obj_t*          s_status_cont        = nullptr;
 static lv_obj_t*          s_favorites_overlay       = nullptr;
-static lv_obj_t*          s_favorites_list          = nullptr;
-static uint32_t           s_favorites_version_built = 0;
 static lv_obj_t*          s_art_cont                = nullptr;
 static sonos::PlaybackState s_last;
 
@@ -298,78 +297,129 @@ lv_obj_t* screens::now_playing_create() {
 // ── now_playing_open_favorites_overlay ───────────────────────────────────────
 
 void screens::now_playing_open_favorites_overlay() {
+    if (s_favorites_overlay) return;
+
     FavoritesState fav = favorites::snapshot();
 
-    // Build or rebuild the overlay if it doesn't exist yet or favorites changed
-    if (!s_favorites_overlay) {
-        // Opaque background — no per-pixel blending with art = fast render
-        s_favorites_overlay = lv_obj_create(lv_layer_top());
-        lv_obj_set_size(s_favorites_overlay, lv_pct(100), lv_pct(100));
-        lv_obj_set_style_bg_color(s_favorites_overlay, lv_color_hex(0x111111), 0);
-        lv_obj_set_style_bg_opa(s_favorites_overlay, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(s_favorites_overlay, 0, 0);
-        lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_SCROLLABLE);
-        // Tap outside list → hide (not delete; preserved for fast re-open)
-        lv_obj_add_event_cb(s_favorites_overlay, [](lv_event_t* e) {
-            if (lv_event_get_target(e) == s_favorites_overlay) {
-                lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+    s_favorites_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_favorites_overlay, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(s_favorites_overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_favorites_overlay, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_favorites_overlay, 0, 0);
+    lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_favorites_overlay, [](lv_event_t* e) {
+        if (lv_event_get_target(e) == s_favorites_overlay) {
+            lv_obj_delete(s_favorites_overlay);
+            s_favorites_overlay = nullptr;
+            nav::clear_list();
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+
+    const LayoutSlot& ls = slot(SLOT_LIST);
+    lv_color_t ac = accent::get();
+    const int32_t cw = ls.w - 16;
+    const int32_t ch = ls.h - 16;
+
+    lv_obj_t* card = lv_obj_create(s_favorites_overlay);
+    lv_obj_set_pos(card, ls.x + 8, ls.y + 8);
+    lv_obj_set_size(card, cw, ch);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x1A1A1A), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_color(card, ac, 0);
+    lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
+    lv_obj_set_style_radius(card, 18, 0);
+    lv_obj_set_style_clip_corner(card, true, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+    lv_obj_set_style_shadow_width(card, 24, 0);
+    lv_obj_set_style_shadow_spread(card, 6, 0);
+    lv_obj_set_style_shadow_color(card, ac, 0);
+    lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* hd = lv_obj_create(card);
+    lv_obj_set_pos(hd, 0, 0);
+    lv_obj_set_size(hd, cw, 52);
+    lv_obj_set_style_bg_color(hd, ac, 0);
+    lv_obj_set_style_bg_opa(hd, LV_OPA_30, 0);
+    lv_obj_set_style_border_side(hd, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(hd, 2, 0);
+    lv_obj_set_style_border_color(hd, ac, 0);
+    lv_obj_set_style_border_opa(hd, LV_OPA_50, 0);
+    lv_obj_set_style_radius(hd, 0, 0);
+    lv_obj_set_style_pad_all(hd, 0, 0);
+    lv_obj_remove_flag(hd, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* hd_lbl = lv_label_create(hd);
+    lv_label_set_text(hd_lbl, "Favorites");
+    lv_obj_set_style_text_font(hd_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(hd_lbl, ac, 0);
+    lv_obj_align(hd_lbl, LV_ALIGN_LEFT_MID, 20, 0);
+
+    lv_obj_t* list = lv_list_create(card);
+    lv_obj_set_pos(list, 0, 52);
+    lv_obj_set_size(list, cw, ch - 52 - 72);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_radius(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_set_style_pad_row(list, 4, 0);
+
+    if (!fav.fetched || fav.items.empty()) {
+        lv_obj_t* empty_btn = lv_list_add_button(list, nullptr,
+            fav.fetched ? "No favorites" : "Loading...");
+        lv_obj_set_style_bg_color(empty_btn, lv_color_hex(0x1A1A1A), 0);
+        lv_obj_set_style_bg_opa(empty_btn, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_color(empty_btn, lv_color_hex(0x888888), 0);
+        lv_obj_clear_flag(empty_btn, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        // Use index stored as intptr — no heap allocation needed
+        for (int idx = 0; idx < (int)fav.items.size(); ++idx) {
+            lv_obj_t* btn = lv_list_add_button(list, nullptr,
+                fav.items[idx].title.c_str());
+            apply_list_btn_style(btn, lv_color_hex(0xEEEEEE));
+            lv_obj_set_ext_click_area(btn, 10);
+            lv_obj_set_user_data(btn, (void*)(intptr_t)idx);
+            lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+                lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
+                int i = (int)(intptr_t)lv_obj_get_user_data(b);
+                FavoritesState f = favorites::snapshot();
+                if (i >= 0 && i < (int)f.items.size()) {
+                    sonos::playback::set_favorite(f.items[i].uri, f.items[i].metadata,
+                                                  f.items[i].metadata_ready);
+                    sonos::playback::enqueue_command(sonos::PlaybackCommand::PlayFavorite);
+                }
+                lv_obj_delete(s_favorites_overlay);
+                s_favorites_overlay = nullptr;
                 nav::clear_list();
-            }
-        }, LV_EVENT_CLICKED, nullptr);
-
-        const LayoutSlot& ls = slot(SLOT_LIST);
-        s_favorites_list = lv_list_create(s_favorites_overlay);
-        lv_obj_set_pos(s_favorites_list, ls.x + 8, ls.y + 8);
-        lv_obj_set_size(s_favorites_list, ls.w - 16, ls.h - 16);
-        lv_obj_set_style_bg_color(s_favorites_list, lv_color_hex(0x1E1E1E), 0);
-        lv_obj_set_style_border_width(s_favorites_list, 0, 0);
-        lv_obj_set_style_radius(s_favorites_list, 16, 0);
-
-        s_favorites_version_built = 0;  // force populate below
-    }
-
-    // Rebuild list contents when favorites data changes
-    if (fav.version != s_favorites_version_built) {
-        s_favorites_version_built = fav.version;
-        lv_obj_clean(s_favorites_list);  // remove all children
-
-        if (!fav.fetched || fav.items.empty()) {
-            lv_obj_t* empty_btn = lv_list_add_button(s_favorites_list, nullptr,
-                fav.fetched ? "No favorites" : "Loading...");
-            lv_obj_set_style_text_color(empty_btn, lv_color_hex(0x888888), 0);
-            lv_obj_clear_flag(empty_btn, LV_OBJ_FLAG_CLICKABLE);
-        } else {
-            // Use index stored as intptr — no heap allocation, safe across hide/show
-            for (int idx = 0; idx < (int)fav.items.size(); ++idx) {
-                lv_obj_t* btn = lv_list_add_button(s_favorites_list, nullptr,
-                    fav.items[idx].title.c_str());
-                lv_obj_set_height(btn, 84);
-                lv_obj_set_style_text_color(btn, lv_color_hex(0xEEEEEE), 0);
-                lv_obj_set_style_text_font(btn, font(FontRole::Title), 0);
-                lv_obj_set_style_pad_ver(btn, 16, 0);
-                lv_obj_set_style_pad_hor(btn, 16, 0);
-                lv_obj_set_ext_click_area(btn, 10);
-                lv_obj_t* lbl = lv_obj_get_child(btn, 0);
-                if (lbl) { lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT); lv_obj_set_width(lbl, lv_pct(100)); }
-                lv_obj_set_user_data(btn, (void*)(intptr_t)idx);
-                lv_obj_add_event_cb(btn, [](lv_event_t* e) {
-                    lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
-                    int i = (int)(intptr_t)lv_obj_get_user_data(b);
-                    FavoritesState f = favorites::snapshot();
-                    if (i >= 0 && i < (int)f.items.size()) {
-                        sonos::playback::set_favorite(f.items[i].uri, f.items[i].metadata,
-                                                      f.items[i].metadata_ready);
-                        sonos::playback::enqueue_command(sonos::PlaybackCommand::PlayFavorite);
-                    }
-                    lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
-                    nav::clear_list();
-                }, LV_EVENT_CLICKED, nullptr);
-            }
+            }, LV_EVENT_CLICKED, nullptr);
         }
     }
 
-    lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
-    nav::register_list(s_favorites_list);
+    // Cancel — fixed at the bottom of the card
+    lv_obj_t* cancel_btn = lv_obj_create(card);
+    lv_obj_set_pos(cancel_btn, 0, ch - 72);
+    lv_obj_set_size(cancel_btn, cw, 72);
+    lv_obj_set_style_bg_color(cancel_btn, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_opa(cancel_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_side(cancel_btn, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(cancel_btn, 1, 0);
+    lv_obj_set_style_border_color(cancel_btn, ac, 0);
+    lv_obj_set_style_border_opa(cancel_btn, LV_OPA_20, 0);
+    lv_obj_set_style_radius(cancel_btn, 0, 0);
+    lv_obj_set_style_pad_all(cancel_btn, 0, 0);
+    lv_obj_remove_flag(cancel_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* cancel_lbl = lv_label_create(cancel_btn);
+    lv_label_set_text(cancel_lbl, "Cancel");
+    lv_obj_set_style_text_font(cancel_lbl, font(FontRole::Body), 0);
+    lv_obj_set_style_text_color(cancel_lbl, lv_color_hex(0x888888), 0);
+    lv_obj_align(cancel_lbl, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_event_cb(cancel_btn, [](lv_event_t*) {
+        lv_obj_delete(s_favorites_overlay);
+        s_favorites_overlay = nullptr;
+        nav::clear_list();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    nav::register_list(list);
 }
 
 

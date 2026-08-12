@@ -252,12 +252,12 @@ lv_obj_t* screens::now_playing_create() {
         // 97% of the 480×480 slot → 466×466 arc, visual radius ≈232px (near display edge)
         lv_obj_set_size(s_volume_arc, lv_pct(97), lv_pct(97));
         lv_obj_align(s_volume_arc, LV_ALIGN_CENTER, 0, 0);
-        // Hug the bottom of the disc, symmetric about 6 o'clock, with the two
-        // ends level with the bottom edge of the track-info card. Both offsets
-        // derive from the card slot + arc radius, so nothing is hardcoded and
-        // it stays correct if the layout changes. LVGL angles: 0°=3 o'clock,
-        // increasing clockwise, so [end_off, 180-end_off] sweeps through the
-        // bottom (90°).
+        // The two ends sit level with the track-info card's bottom edge on each
+        // side; the body sweeps up and over the top (12 o'clock), leaving the
+        // bottom open. Both offsets derive from the card slot + arc radius, so
+        // nothing is hardcoded and it stays correct if the layout changes. LVGL
+        // angles: 0°=3 o'clock, increasing clockwise; [180-end_off, 360+end_off]
+        // starts at the left end and sweeps through the top (270°).
         {
             int32_t arc_r = (kDisplay.h * 97 / 100) / 2;
             int32_t drop  = (slot(SLOT_TRACK_INFO).y + slot(SLOT_TRACK_INFO).h)
@@ -266,10 +266,9 @@ lv_obj_t* screens::now_playing_create() {
             if (ratio > 1.0f) ratio = 1.0f;
             int32_t end_off = (int32_t)(asinf(ratio) * 180.0f / 3.14159265f);
             lv_arc_set_rotation(s_volume_arc, 0);
-            lv_arc_set_bg_angles(s_volume_arc, end_off, 180 - end_off);
+            lv_arc_set_bg_angles(s_volume_arc, 180 - end_off, 360 + end_off);
         }
-        lv_arc_set_mode(s_volume_arc, LV_ARC_MODE_REVERSE);  // fills from the left end
-        lv_arc_set_value(s_volume_arc, 50);
+        lv_arc_set_value(s_volume_arc, 50);  // NORMAL fill: from the left end, up and over
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0xD4A843), LV_PART_INDICATOR);
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x2A2A2A), LV_PART_MAIN);

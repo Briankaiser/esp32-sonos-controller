@@ -49,7 +49,22 @@
 
 - [x] 6.1 Both PlatformIO envs build (`crowpanel_21_round`, `ref_rect_stub`); host parser tests pass (`pio test -e test_native`, test_gena 27/27)
 - [ ] 6.2 **[hardware]** Soak test: leave device running ≥12h with periodic app-side changes; confirm renewals hold, no reboots, heap stable (debug overlay)
-  - Soak started 2026-08-12 10:15:19 CDT. Clean boot, eventing healthy, lease 3600s. Baseline heap at T=622s: free=133268 min_free=94588. Soak target: complete by 2026-08-13 10:15 CDT. To close: reconnect serial, confirm no `[GENA] eventing unhealthy` or reboot lines, and heap free ≥80KB steady (or `/screenshot` debug overlay).
+  - The 2026-08-12 10:15 attempt was invalidated — a full day of iterative UI/bug-fix
+    flashing (favorites styling, volume fix, now-playing restyle, TRANSITIONING fix,
+    alpha-sort) rebooted the device repeatedly. Restarted clean on the final build.
+  - **Soak (re)started 2026-08-12 ~20:21 CDT on build `c19b603`.** Serial captured to
+    `soak.log` via a reboot-robust sniffer (logs a `READ ERROR` marker if the USB-CDC
+    port drops, i.e. a device reset). Leaving ~11h overnight → ends ~2026-08-13 07:20 CDT.
+    ~1h under the nominal 12h target but spans ~10 hourly (3600s) lease renewals, which
+    is the property under test.
+  - Interactive changes (play/pause, volume, grouping, room switch) were exercised
+    heavily during the day's testing (see 5.4/5.5/6.3); the overnight run isolates
+    renewal-through-idle + heap stability + no-reboot.
+  - **Pass criteria (check `soak.log` in the morning):** (1) no `[GENA] eventing unhealthy`
+    lines; (2) no reset markers — `READ ERROR`, boot banner (`rst:`, `ESP-ROM`), `Guru
+    Meditation`, `Backtrace`, `Brownout`, `abort()`; (3) heap `free` ≥80KB with `min_free`
+    not trending toward zero across the run.
+  - Baseline heap: _(first `[Heap]` sample below, filled once captured)_
 - [x] 6.3 **[hardware]** Socket-budget check under load: NOTIFY burst + `/screenshot` + album-art fetch concurrently, all succeed
   - Verified 2026-08-12. SOAP Next fired directly to Roam while screenshot download was mid-flight + /rooms polled concurrently. All three returned exit=0. Serial log: art decoded 320×320 accent=#99968A (fetch 616ms, decode 238ms) during the window; no socket errors, no heap warnings, eventing stayed healthy throughout.
 - [x] 6.4 `openspec validate --all --strict` clean; CHANGELOG.md entry under `[Unreleased]`

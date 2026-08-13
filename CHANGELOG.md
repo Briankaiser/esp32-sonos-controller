@@ -11,6 +11,15 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ## [Unreleased]
 
+### Removed
+
+- The captive-portal setup form no longer asks for a weather latitude and
+  longitude, and the device no longer stores them. These were collected and
+  persisted but never used — there is no weather display or service — so they
+  were dead configuration that added fields to first-time setup. Only WiFi
+  SSID, WiFi password, and OTA password are collected now. (Previously stored
+  values become harmless orphaned keys, cleared on the next factory reset.)
+
 ### Added
 
 - Sonos state changes now arrive by push (UPnP GENA event subscriptions to

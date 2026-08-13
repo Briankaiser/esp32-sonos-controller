@@ -27,10 +27,6 @@ button{margin-top:1.5em;width:100%;padding:.7em;font-size:1em;background:#1565c0
 <input name=ssid type=text autocomplete=off required>
 <label>WiFi Password <span style=color:red>*</span></label>
 <input name=pass type=password autocomplete=off required>
-<label>Latitude</label>
-<input name=lat type=text placeholder="e.g. 40.7128">
-<label>Longitude</label>
-<input name=lon type=text placeholder="e.g. -74.0060">
 <label>OTA Password</label>
 <input name=ota type=password autocomplete=off>
 <button type=submit>Save &amp; Reboot</button>
@@ -115,8 +111,6 @@ void portal::run() {
         }
         prefs::store_provisioning(
             ssid, pass,
-            s_server.arg("lat"),
-            s_server.arg("lon"),
             s_server.arg("ota")
         );
         s_server.send(200, "text/html", kConfirmPage);

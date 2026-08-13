@@ -64,7 +64,9 @@
     lines; (2) no reset markers — `READ ERROR`, boot banner (`rst:`, `ESP-ROM`), `Guru
     Meditation`, `Backtrace`, `Brownout`, `abort()`; (3) heap `free` ≥80KB with `min_free`
     not trending toward zero across the run.
-  - Baseline heap: _(first `[Heap]` sample below, filled once captured)_
+  - Baseline heap (T+10min): `free=132724 min_free=65184` — free ~133KB, well above the
+    80KB floor. `min_free` is the since-boot low watermark (boot-time art decode etc.);
+    the test is that it holds, not that it keeps dropping.
 - [x] 6.3 **[hardware]** Socket-budget check under load: NOTIFY burst + `/screenshot` + album-art fetch concurrently, all succeed
   - Verified 2026-08-12. SOAP Next fired directly to Roam while screenshot download was mid-flight + /rooms polled concurrently. All three returned exit=0. Serial log: art decoded 320×320 accent=#99968A (fetch 616ms, decode 238ms) during the window; no socket errors, no heap warnings, eventing stayed healthy throughout.
 - [x] 6.4 `openspec validate --all --strict` clean; CHANGELOG.md entry under `[Unreleased]`

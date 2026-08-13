@@ -15,13 +15,10 @@ String home_room();
 void   set_home_room(const String& uuid);
 bool   group_volume_mode();                   // false = home room only (default); true = whole group
 void   set_group_volume_mode(bool whole_group);
-String lat();
-String lon();
 String ota_pass();
 
 // All-or-nothing write of all provisioning fields.
 void store_provisioning(const String& ssid, const String& pass,
-                        const String& lat_val, const String& lon_val,
                         const String& ota);
 
 // Clears the opensonos NVS namespace and reboots to portal mode.

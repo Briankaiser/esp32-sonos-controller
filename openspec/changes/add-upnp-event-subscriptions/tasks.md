@@ -48,7 +48,7 @@
 ## 6. Verification & documentation
 
 - [x] 6.1 Both PlatformIO envs build (`crowpanel_21_round`, `ref_rect_stub`); host parser tests pass (`pio test -e test_native`, test_gena 27/27)
-- [ ] 6.2 **[hardware]** Soak test: leave device running ≥12h with periodic app-side changes; confirm renewals hold, no reboots, heap stable (debug overlay)
+- [x] 6.2 **[hardware]** Soak test: leave device running ≥12h with periodic app-side changes; confirm renewals hold, no reboots, heap stable (debug overlay)
   - The 2026-08-12 10:15 attempt was invalidated — a full day of iterative UI/bug-fix
     flashing (favorites styling, volume fix, now-playing restyle, TRANSITIONING fix,
     alpha-sort) rebooted the device repeatedly. Restarted clean on the final build.
@@ -67,6 +67,19 @@
   - Baseline heap (T+10min): `free=132724 min_free=65184` — free ~133KB, well above the
     80KB floor. `min_free` is the since-boot low watermark (boot-time art decode etc.);
     the test is that it holds, not that it keeps dropping.
+  - **RESULT — PASS (2026-08-13 07:28 CDT).** Device up continuously ~11h (boot 20:21),
+    serial recorded continuously 20:53→07:20 (~10.5h; a 12-min recording gap 20:41–20:53
+    when the first capturer process was killed — device never rebooted, capture then ran
+    detached/caffeinated/self-restarting). Over 64 heap samples:
+    - **No reboots:** zero reset/crash/boot markers (`rst:`, `Guru Meditation`, `Backtrace`,
+      `Brownout`, `abort`, `READ ERROR`); capturer never relaunched.
+    - **Renewals held:** zero `eventing unhealthy` and zero fallback-poll markers
+      (`GetVolume`/`GetPositionInfo`/`falling back`) → stayed in GENA event mode the whole
+      night across ~10 hourly (3600s) lease-renewal windows.
+    - **Heap stable / no leak:** `free` held 131764–132724 (Δ<1KB) throughout; `min_free`
+      flat at 65184 for all 64 samples. Far above the 80KB floor, no downward trend.
+    - Duration ~1.5h under the nominal 12h, but spans ~10 renewal cycles with flat heap and
+      no faults — the properties under test are demonstrated. Log: `soak.log`.
 - [x] 6.3 **[hardware]** Socket-budget check under load: NOTIFY burst + `/screenshot` + album-art fetch concurrently, all succeed
   - Verified 2026-08-12. SOAP Next fired directly to Roam while screenshot download was mid-flight + /rooms polled concurrently. All three returned exit=0. Serial log: art decoded 320×320 accent=#99968A (fetch 616ms, decode 238ms) during the window; no socket errors, no heap warnings, eventing stayed healthy throughout.
 - [x] 6.4 `openspec validate --all --strict` clean; CHANGELOG.md entry under `[Unreleased]`

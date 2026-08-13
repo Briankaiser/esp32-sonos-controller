@@ -12,7 +12,7 @@ Provisioning already has: `prefs::is_provisioned()` (true iff WiFi SSID stored),
 **Goals:**
 - One evaluator that maps live signals → a single fault enum, with a clear priority.
 - Fault presentation that reuses the existing overlay/"illuminated" styling and the round safe-area machinery.
-- A re-setup path that clears WiFi credentials and reboots to the portal, guarded by confirmation.
+- A re-setup path that resets stored configuration and reboots to the portal, guarded by confirmation.
 
 **Non-Goals:**
 - No change to discovery/eventing behavior (they already retry and expose state).
@@ -30,8 +30,8 @@ One overlay object, shown when `fault != None` and hidden when `None` (this *is*
 **3. The "no Sonos found" bounded window is a UI-side timer.**
 Track "WiFi-connected-with-zero-speakers since T". Only raise `NoSonos` once that exceeds ~15 s; before then show the existing transient connecting indication. This prevents a normal cold-boot search from flashing an alarming screen. Home-room resolution typically lands after the first speakers appear, so the priority order plus this window avoid a NoSonos→HomeRoomOffline→normal flash.
 
-**4. Re-setup clears WiFi credentials only (not full factory reset), then reboots.**
-Add `prefs::clear_wifi()` that removes the SSID/password keys so `is_provisioned()` returns false; weather/OTA prefs survive. On reboot the *existing* first-boot path detects missing credentials and starts the portal — no new portal entry code. *Alternative:* reuse `factory_reset()` — rejected because it needlessly wipes weather/OTA; the user's intent is "redo WiFi," not "wipe the device."
+**4. Re-setup uses the existing full `prefs::factory_reset()`, then reboots.**
+On confirmation, call `factory_reset()` (wipes all NVS → unprovisioned) and `ESP.restart()`. On reboot the *existing* first-boot path detects missing credentials and starts the portal — no new prefs helper and no new portal entry code. *Alternative:* a WiFi-credentials-only clear to preserve other settings — rejected: weather config is being removed under a separate `remove-weather` change, and OTA password is re-collected by the portal form anyway, so a full reset loses nothing worth keeping and is the simpler, already-tested primitive.
 
 **5. Confirmation reuses the modal card + accent styling.**
 The destructive re-setup uses a two-button confirm (Cancel / Confirm) built with the existing modal-overlay look, satisfying the "explicit confirmation" requirement. Touch-driven.
@@ -44,8 +44,5 @@ If a fault is diagnosed while a settings/favorites overlay is open, the fault ov
 - **Fault flapping (WiFi bouncing, one-cycle discovery blips)** → apply short hysteresis: require a condition to persist a beat before showing, and debounce clears by one evaluation, so a momentary blip doesn't flash the screen.
 - **Boot ordering (WiFi up, speakers not yet found, home room not yet resolved)** → handled by the ~15 s NoSonos window + strict priority; documented so implementation preserves it.
 - **Destructive re-setup from a stray touch** → mitigated by the mandatory confirm step (spec'd).
-- **Clearing WiFi keys but leaving stale weather/OTA** → acceptable; the portal form re-collects them on submit. A future nicety is pre-filling the form from surviving prefs (see Open Questions).
-
-## Open Questions
-
-- Should the portal form pre-fill weather/OTA from surviving NVS after a WiFi-only clear? Deferrable — it does not change these specs or the task breakdown.
+- **Full reset also wipes OTA password** → acceptable; the portal form re-collects it on submit, and re-setup is an explicit, confirmed recovery action.
+- **Ordering vs `remove-weather`** → this change assumes `factory_reset()` exists (it does) and does not depend on weather being removed first; the two changes touch different `device-provisioning` requirements (this one ADDs re-provisioning; `remove-weather` MODIFIES the form fields), so they archive independently.

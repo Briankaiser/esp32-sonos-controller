@@ -32,7 +32,7 @@ The device SHALL continuously determine which connectivity fault, if any, curren
 
 ### Requirement: No-WiFi Fault Screen Offers a Confirmed Re-Setup Action
 
-When the diagnosed fault is "no WiFi connection", the device SHALL display a full-screen status, positioned within the round display's inscribed safe-area circle, that states in plain language that it cannot reach the configured WiFi network. The screen SHALL present a control to re-run WiFi setup. Activating that control SHALL require an explicit on-screen confirmation before any destructive action. On confirmation, the device SHALL clear the stored WiFi credentials and reboot into the `OpenSonos-Setup` captive portal. On cancellation, the device SHALL return to the status screen with no change to stored credentials.
+When the diagnosed fault is "no WiFi connection", the device SHALL display a full-screen status, positioned within the round display's inscribed safe-area circle, that states in plain language that it cannot reach the configured WiFi network. The screen SHALL present a control to re-run WiFi setup. Activating that control SHALL require an explicit on-screen confirmation before any destructive action. On confirmation, the device SHALL reset its stored configuration to an unprovisioned state and reboot into the `OpenSonos-Setup` captive portal. On cancellation, the device SHALL return to the status screen with no change to stored configuration.
 
 #### Scenario: No-WiFi screen shown
 
@@ -46,16 +46,16 @@ When the diagnosed fault is "no WiFi connection", the device SHALL display a ful
 - **THEN** the device asks for an explicit confirmation before doing anything destructive
 - **AND** no credentials are cleared unless the user confirms
 
-#### Scenario: Confirmed re-setup wipes credentials and enters portal
+#### Scenario: Confirmed re-setup resets and enters portal
 
 - **WHEN** the user confirms the re-run-WiFi-setup action
-- **THEN** the device clears the stored WiFi credentials
+- **THEN** the device resets its stored configuration to an unprovisioned state
 - **AND** the device reboots into the `OpenSonos-Setup` captive portal
 
 #### Scenario: Cancelled re-setup changes nothing
 
 - **WHEN** the user cancels the confirmation
-- **THEN** stored credentials are unchanged
+- **THEN** stored configuration is unchanged
 - **AND** the device remains on the no-WiFi status screen
 
 ### Requirement: No-Sonos-Found Fault Screen After a Bounded Search

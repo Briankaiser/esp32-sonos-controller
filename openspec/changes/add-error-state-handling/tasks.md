@@ -16,9 +16,9 @@
 
 ## 3. Re-provisioning path
 
-- [ ] 3.1 Add `prefs::clear_wifi()` that removes only the WiFi SSID/password keys so `is_provisioned()` returns false (weather/OTA preserved).
+- [ ] 3.1 Re-setup uses the existing `prefs::factory_reset()` (full NVS wipe → unprovisioned); no new clear helper needed.
 - [ ] 3.2 Add a "Re-run WiFi Setup" control to the No-WiFi fault screen.
-- [ ] 3.3 Add a confirm dialog (Cancel / Confirm) reusing modal styling; only on Confirm call `clear_wifi()` and `ESP.restart()`.
+- [ ] 3.3 Add a confirm dialog (Cancel / Confirm) reusing modal styling; only on Confirm call `prefs::factory_reset()` and `ESP.restart()`.
 - [ ] 3.4 Verify the post-reboot first-boot path detects missing credentials and starts the `OpenSonos-Setup` portal unchanged.
 
 ## 4. Now-playing handoff
@@ -34,7 +34,7 @@
 ## 6. Verification & documentation
 
 - [ ] 6.1 Both PlatformIO envs build (`crowpanel_21_round`, `ref_rect_stub`).
-- [ ] 6.2 **[hardware]** No-WiFi: with the AP off/unreachable, the No-WiFi screen appears; `/screenshot` captured. Confirm → clears WiFi creds → reboots into `OpenSonos-Setup`. Cancel → no change.
+- [ ] 6.2 **[hardware]** No-WiFi: with the AP off/unreachable, the No-WiFi screen appears; `/screenshot` captured. Confirm → full factory reset → reboots into `OpenSonos-Setup`. Cancel → no change.
 - [ ] 6.3 **[hardware]** No-Sonos: WiFi up, all speakers powered off (or off-network) → "No Sonos system found" after the bounded window; `/screenshot` captured; auto-recovers when a speaker returns.
 - [ ] 6.4 **[hardware]** Home-room-offline: put the configured home room offline (e.g., sleeping Roam) while other speakers remain → named "offline" screen; `/screenshot` captured; auto-recovers when it returns.
 - [ ] 6.5 **[hardware]** Auto-recovery has no flicker/thrash across a WiFi bounce and an intermittent-discovery cycle.

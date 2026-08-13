@@ -8,6 +8,7 @@
 #include "ui/layout/layout.h"
 #include "ui/screens/placeholder.h"
 #include "ui/screens/now_playing.h"
+#include "ui/screens/fault_overlay.h"
 #include "ui/nav.h"
 #include "services/prefs.h"
 #include "services/portal.h"
@@ -384,6 +385,11 @@ static void ui_task(void* /*arg*/) {
         // decoded frame unshown until the next bump. This is idempotent and
         // cheap when the art version is unchanged.
         screens::now_playing_refresh_art();
+
+        // Diagnose connectivity faults and show/hide the fault status layer
+        // (no WiFi / no Sonos / home room offline), with silent auto-recovery.
+        // Cheap and internally throttled; safe to call every tick on the UI task.
+        screens::fault_overlay_tick();
 
         // Yield up to one LVGL refresh period. Encoder/button events are ISR-driven
         // so nothing is missed; LVGL governs render cadence via LV_DEF_REFR_PERIOD.

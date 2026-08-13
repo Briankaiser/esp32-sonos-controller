@@ -22,6 +22,15 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Connectivity problems now show a clear, recoverable status screen instead of
+  hanging on "Connecting…" forever. Three faults are distinguished from local
+  signals: **No WiFi** (with a confirm-guarded "Re-run WiFi Setup" that factory-
+  resets and reboots into the setup portal), **No Sonos found** (after a brief
+  search, rather than an endless spinner), and **Home room offline** (naming the
+  room and reconnecting on its own). Each screen clears itself automatically the
+  moment the condition resolves. Implemented without hardware present: on-device
+  verification of each fault is tracked in the OpenSpec change
+  (`add-error-state-handling`).
 - Sonos state changes now arrive by push (UPnP GENA event subscriptions to
   AVTransport, RenderingControl, and ZoneGroupTopology) instead of 2-second
   polling: play/pause/track/volume/grouping changes made from the phone app

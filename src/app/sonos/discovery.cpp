@@ -2,6 +2,7 @@
 #include "state.h"
 #include "soap.h"
 #include "playback.h"
+#include "xml_util.h"
 #include "../../services/prefs.h"
 
 #include <Arduino.h>
@@ -10,44 +11,13 @@
 #include <WiFiUdp.h>
 #include <vector>
 
-// ── XML / string helpers ─────────────────────────────────────────────────────
-
-static String xml_field(const String& xml, const String& tag) {
-    String open  = "<" + tag + ">";
-    String close = "</" + tag + ">";
-    int s = xml.indexOf(open);
-    if (s < 0) return "";
-    s += open.length();
-    int e = xml.indexOf(close, s);
-    if (e < 0) return "";
-    return xml.substring(s, e);
+// XML/string helpers shared with playback and eventing (see xml_util.h)
+using sonos::xml::html_decode;
+static inline String xml_field(const String& xml, const String& tag) {
+    return sonos::xml::field(xml, tag);
 }
-
-static String xml_attr(const String& element, const String& attr) {
-    String pat = attr + "=\"";
-    int s = element.indexOf(pat);
-    if (s < 0) return "";
-    s += pat.length();
-    int e = element.indexOf('"', s);
-    if (e < 0) return "";
-    return element.substring(s, e);
-}
-
-static String html_decode(const String& s) {
-    String r = s;
-    r.replace("&lt;",   "<");
-    r.replace("&gt;",   ">");
-    r.replace("&quot;", "\"");
-    r.replace("&apos;", "'");
-    r.replace("&#39;",  "'");
-    r.replace("&#x27;", "'");
-    r.replace("&amp;",  "&");  // must be last
-    // Normalize Unicode smart quotes to ASCII (Montserrat font lacks U+2018/U+2019)
-    r.replace("\xe2\x80\x98", "'");  // U+2018 LEFT SINGLE QUOTATION MARK
-    r.replace("\xe2\x80\x99", "'");  // U+2019 RIGHT SINGLE QUOTATION MARK
-    r.replace("\xe2\x80\x9c", "\""); // U+201C LEFT DOUBLE QUOTATION MARK
-    r.replace("\xe2\x80\x9d", "\""); // U+201D RIGHT DOUBLE QUOTATION MARK
-    return r;
+static inline String xml_attr(const String& element, const String& attr) {
+    return sonos::xml::attr(element, attr);
 }
 
 // Wrap-safe deadline check — millis() < deadline inverts at the 32-bit rollover
@@ -292,24 +262,11 @@ static bool fetch_speaker_info(const String& location, SpeakerInfo& out) {
 
 // ── Zone-group topology ───────────────────────────────────────────────────────
 
-static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
-                                              std::vector<SpeakerInfo>& speakers) {
-    String path = home.control_url_base + "/ZoneGroupTopology/Control";
-    String resp = sonos::soap::call(
-        home.ip, home.port, path,
-        "urn:schemas-upnp-org:service:ZoneGroupTopology:1",
-        "GetZoneGroupState", "");
-
-    if (resp.isEmpty()) return {};
-
-    // ZoneGroupState content is HTML-entity-encoded inside <ZoneGroupState>…</ZoneGroupState>
-    String raw = xml_field(resp, "ZoneGroupState");
-    if (raw.isEmpty()) {
-        Serial.println("[Sonos] topology: no ZoneGroupState element in response");
-        return {};
-    }
-    String decoded = html_decode(raw);
-
+// Parses decoded ZoneGroupState XML into groups, updating speakers' zone names
+// and invisible flags in place. Shared by the SOAP fetch path (run_cycle) and
+// the GENA topology-event path (eventing.cpp via ingest_topology_xml).
+static std::vector<ZoneGroup> parse_zone_group_state(const String& decoded,
+                                                     std::vector<SpeakerInfo>& speakers) {
     std::vector<ZoneGroup> groups;
     int pos = 0;
     while (true) {
@@ -383,6 +340,77 @@ static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
 
     Serial.printf("[Sonos] topology updated: %u group(s)\n", (unsigned)groups.size());
     return groups;
+}
+
+static std::vector<ZoneGroup> fetch_topology(const SpeakerInfo& home,
+                                              std::vector<SpeakerInfo>& speakers) {
+    String path = home.control_url_base + "/ZoneGroupTopology/Control";
+    String resp = sonos::soap::call(
+        home.ip, home.port, path,
+        "urn:schemas-upnp-org:service:ZoneGroupTopology:1",
+        "GetZoneGroupState", "");
+
+    if (resp.isEmpty()) return {};
+
+    // ZoneGroupState content is HTML-entity-encoded inside <ZoneGroupState>…</ZoneGroupState>
+    String raw = xml_field(resp, "ZoneGroupState");
+    if (raw.isEmpty()) {
+        Serial.println("[Sonos] topology: no ZoneGroupState element in response");
+        return {};
+    }
+    return parse_zone_group_state(html_decode(raw), speakers);
+}
+
+// Derives the home room's group-coordinator UUID from `groups` and publishes it
+// to playback state. Empty = standalone; own uuid = coordinator of a multi-
+// member group; other uuid = member of that coordinator's group.
+static void publish_group_uuid(const std::vector<ZoneGroup>& groups, const String& hr_uuid) {
+    String g_uuid;
+    for (const auto& grp : groups) {
+        bool is_coord  = (grp.coordinator_uuid == hr_uuid);
+        bool is_member = false;
+        for (const auto& m : grp.member_uuids) {
+            if (m == hr_uuid) { is_member = true; break; }
+        }
+        if (is_member || is_coord) {
+            if (is_coord && grp.member_uuids.size() > 1) g_uuid = hr_uuid;
+            else if (!is_coord) g_uuid = grp.coordinator_uuid;
+            break;
+        }
+    }
+    sonos::playback::update_group_uuid(g_uuid);
+}
+
+// ── Event-driven topology ingestion (called from event_task) ─────────────────
+//
+// Both functions read-modify-write shared state. A discovery run_cycle
+// publishing between the snapshot and update here would be overwritten with
+// this (equally fresh) topology; the window is milliseconds and the next
+// event or cycle converges — accepted rather than holding the state mutex
+// across parsing.
+
+void sonos::discovery::ingest_topology_xml(const String& decoded_zgs) {
+    SonosState st = sonos::state::snapshot();
+    if (st.speakers.empty()) return;  // no speaker list yet to correlate against
+    std::vector<ZoneGroup> groups = parse_zone_group_state(decoded_zgs, st.speakers);
+    if (groups.empty()) return;       // malformed/empty event — keep current topology
+    st.groups = groups;
+    // st.speakers / home_room_idx carried through unchanged: an event never
+    // removes speakers merely absent from its payload.
+    sonos::state::update(st);
+    if (st.home_room_idx >= 0 && st.home_room_idx < (int)st.speakers.size()) {
+        publish_group_uuid(groups, st.speakers[st.home_room_idx].uuid);
+    }
+}
+
+void sonos::discovery::refresh_topology_via_soap() {
+    SonosState st = sonos::state::snapshot();
+    if (st.home_room_idx < 0 || st.home_room_idx >= (int)st.speakers.size()) return;
+    std::vector<ZoneGroup> groups = fetch_topology(st.speakers[st.home_room_idx], st.speakers);
+    if (groups.empty()) return;
+    st.groups = groups;
+    sonos::state::update(st);
+    publish_group_uuid(groups, st.speakers[st.home_room_idx].uuid);
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -477,20 +505,6 @@ void sonos::discovery::run_cycle() {
     // This corrects any drift from external group changes; optimistic updates handle
     // the immediate feedback after user-initiated join/leave commands.
     if (home_room_idx >= 0) {
-        const String& hr_uuid = speakers[home_room_idx].uuid;
-        String g_uuid;
-        for (const auto& grp : next.groups) {
-            bool is_coord = (grp.coordinator_uuid == hr_uuid);
-            bool is_member = false;
-            for (const auto& m : grp.member_uuids) {
-                if (m == hr_uuid) { is_member = true; break; }
-            }
-            if (is_member || is_coord) {
-                if (is_coord && grp.member_uuids.size() > 1) g_uuid = hr_uuid;
-                else if (!is_coord) g_uuid = grp.coordinator_uuid;
-                break;
-            }
-        }
-        sonos::playback::update_group_uuid(g_uuid);
+        publish_group_uuid(next.groups, speakers[home_room_idx].uuid);
     }
 }

@@ -106,9 +106,24 @@ static String read_line(WiFiClient& client, uint32_t deadline) {
     return line;
 }
 
+// If a fetch makes no read progress for this long, treat it as stalled and
+// give up early rather than burning the full 10s deadline. A stalled speaker
+// or flaky WiFi path otherwise costs 10s per failed attempt (observed: four
+// 10s truncations before art finally rendered).
+static constexpr uint32_t kFetchStallMs = 3000;
+
+// Diagnostics for the last fetch, read by fetch_and_decode's failure logging.
+static uint32_t s_last_fetch_ms       = 0;   // wall time spent in the last fetch
+static long     s_last_content_length = -1;  // Content-Length header, -1 if absent
+static bool     s_last_fetch_stalled  = false;
+
 static size_t fetch_jpeg(const String& url,
                          const String& speaker_ip,
                          uint16_t      speaker_port) {
+    s_last_content_length = -1;
+    s_last_fetch_stalled  = false;
+    uint32_t t_start      = millis();
+
     String decoded_url = url;
     decoded_url.replace("&amp;", "&");
 
@@ -119,6 +134,7 @@ static size_t fetch_jpeg(const String& url,
         int proto_end = decoded_url.indexOf("://");
         if (proto_end < 0) {
             Serial.printf("[Art] bad URL: %s\n", decoded_url.c_str());
+            s_last_fetch_ms = millis() - t_start;
             return 0;
         }
         String rest = decoded_url.substring(proto_end + 3);
@@ -131,6 +147,7 @@ static size_t fetch_jpeg(const String& url,
     if (!client.connect(speaker_ip.c_str(), speaker_port, 5000)) {
         Serial.printf("[Art] connect failed %s:%u\n",
                       speaker_ip.c_str(), (unsigned)speaker_port);
+        s_last_fetch_ms = millis() - t_start;
         return 0;
     }
     client.printf("GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n\r\n",
@@ -143,7 +160,13 @@ static size_t fetch_jpeg(const String& url,
     while (client.connected() && time_before(deadline)) {
         String line = read_line(client, deadline);
         if (line.isEmpty()) break;
-        if (line.indexOf("chunked") >= 0) is_chunked = true;
+        String lower = line;
+        lower.toLowerCase();
+        if (lower.indexOf("chunked") >= 0) is_chunked = true;
+        if (lower.startsWith("content-length:")) {
+            s_last_content_length = strtol(line.substring(line.indexOf(':') + 1).c_str(),
+                                           nullptr, 10);
+        }
     }
 
     size_t fetched = 0;
@@ -180,20 +203,28 @@ static size_t fetch_jpeg(const String& url,
             if (fetched >= art::kArtJpegBufBytes) break;
         }
     } else {
+        uint32_t last_progress = millis();
         while ((client.connected() || client.available()) && time_before(deadline)) {
             int av = client.available();
             if (av > 0 && fetched < art::kArtJpegBufBytes) {
                 size_t to_read = (size_t)av;
                 if (to_read > art::kArtJpegBufBytes - fetched)
                     to_read = art::kArtJpegBufBytes - fetched;
-                fetched += (size_t)client.readBytes(
+                size_t got = (size_t)client.readBytes(
                     (char*)(s_jpeg_buf + fetched), to_read);
+                fetched += got;
+                if (got > 0) last_progress = millis();
             }
             if (fetched >= art::kArtJpegBufBytes) break;
+            // Full body received — stop now rather than waiting for the server
+            // to close the connection.
+            if (s_last_content_length >= 0 && (long)fetched >= s_last_content_length) break;
+            if (millis() - last_progress > kFetchStallMs) { s_last_fetch_stalled = true; break; }
             delay(1);
         }
     }
     client.stop();
+    s_last_fetch_ms = millis() - t_start;
     return fetched;
 }
 
@@ -205,7 +236,12 @@ static void fetch_and_decode(const String& url,
     if (!s_jpeg_buf || !s_pixel_buf) return;
 
     size_t fetched = fetch_jpeg(url, speaker_ip, speaker_port);
-    if (fetched == 0) { Serial.println("[Art] empty response"); return; }
+    if (fetched == 0) {
+        Serial.printf("[Art] empty response (%lums%s)\n",
+                      (unsigned long)s_last_fetch_ms,
+                      s_last_fetch_stalled ? ", stalled" : "");
+        return;
+    }
     if (fetched >= art::kArtJpegBufBytes) {
         Serial.printf("[Art] JPEG too large (>= %u bytes)\n", (unsigned)art::kArtJpegBufBytes);
         return;
@@ -213,7 +249,8 @@ static void fetch_and_decode(const String& url,
 
     // Open JPEG from RAM
     if (!s_jpeg.openRAM(s_jpeg_buf, (int)fetched, jpeg_draw)) {
-        Serial.println("[Art] JPEGDEC openRAM failed");
+        Serial.printf("[Art] JPEGDEC openRAM failed (%u bytes, %lums)\n",
+                      (unsigned)fetched, (unsigned long)s_last_fetch_ms);
         return;
     }
 
@@ -239,11 +276,26 @@ static void fetch_and_decode(const String& url,
 
     s_decoded_w = dec_w;
 
+    uint32_t t_dec = millis();
     int ok = s_jpeg.decode(0, 0, scale);
+    uint32_t decode_ms = millis() - t_dec;
     s_jpeg.close();
 
     if (!ok) {
-        Serial.println("[Art] JPEGDEC decode failed");
+        // openRAM parsed the header but decode ran short — almost always a
+        // truncated download. Log the byte count against Content-Length and
+        // the elapsed time so a stall is distinguishable from a genuinely
+        // corrupt JPEG.
+        if (s_last_content_length >= 0 && (long)fetched < s_last_content_length) {
+            Serial.printf("[Art] fetch truncated %u/%ld bytes in %lums%s — decode failed\n",
+                          (unsigned)fetched, s_last_content_length,
+                          (unsigned long)s_last_fetch_ms,
+                          s_last_fetch_stalled ? " (stalled)" : "");
+        } else {
+            Serial.printf("[Art] JPEGDEC decode failed (%u bytes, %lums%s)\n",
+                          (unsigned)fetched, (unsigned long)s_last_fetch_ms,
+                          s_last_fetch_stalled ? ", stalled" : "");
+        }
         return;
     }
 
@@ -258,9 +310,10 @@ static void fetch_and_decode(const String& url,
     s_state.version++;
     xSemaphoreGive(s_mutex);
 
-    Serial.printf("[Art] decoded %ux%u accent=#%02X%02X%02X\n",
+    Serial.printf("[Art] decoded %ux%u accent=#%02X%02X%02X (fetch %lums, decode %lums)\n",
                   dec_w, dec_h,
-                  (unsigned)accent.red, (unsigned)accent.green, (unsigned)accent.blue);
+                  (unsigned)accent.red, (unsigned)accent.green, (unsigned)accent.blue,
+                  (unsigned long)s_last_fetch_ms, (unsigned long)decode_ms);
 }
 
 // ── Art task body ─────────────────────────────────────────────────────────────

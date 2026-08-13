@@ -53,13 +53,14 @@ void test_archetype_defines_all_slots() {
 
 // ── Album art slot geometry (round 480×480 archetype) ────────────────────────
 
-void test_album_art_slot_is_centered() {
+void test_album_art_slot_is_full_bleed() {
+    // SLOT_ALBUM_ART is a full-bleed background layer — the round display
+    // hardware clips it to the disc (see archetype_round_compact.h).
     const LayoutSlot& s = slot(SLOT_ALBUM_ART);
-    // Expected: pct(480,22)=105, pct(480,56)=268
-    TEST_ASSERT_EQUAL_UINT16(105, s.x);
-    TEST_ASSERT_EQUAL_UINT16(105, s.y);
-    TEST_ASSERT_EQUAL_UINT16(268, s.w);
-    TEST_ASSERT_EQUAL_UINT16(268, s.h);
+    TEST_ASSERT_EQUAL_UINT16(0,   s.x);
+    TEST_ASSERT_EQUAL_UINT16(0,   s.y);
+    TEST_ASSERT_EQUAL_UINT16(480, s.w);
+    TEST_ASSERT_EQUAL_UINT16(480, s.h);
 }
 
 void test_album_art_slot_is_square() {
@@ -77,6 +78,12 @@ void test_all_slots_within_inscribed_disc() {
     static constexpr uint32_t R2 = 240u * 240u;
 
     for (int i = 0; i < static_cast<int>(SLOT_COUNT); ++i) {
+        // Mirror the safe_area.h exemptions: SLOT_ALBUM_ART is an intentional
+        // full-bleed background and SLOT_VOLUME_ARC's bounding box spans the
+        // framebuffer while its arc content is geometrically confined to the
+        // disc. Neither is subject to the disc-containment invariant.
+        if (i == static_cast<int>(SLOT_ALBUM_ART) ||
+            i == static_cast<int>(SLOT_VOLUME_ARC)) continue;
         const LayoutSlot& s = slot(static_cast<SlotId>(i));
         int16_t x2 = static_cast<int16_t>(s.x + s.w - 1);
         int16_t y2 = static_cast<int16_t>(s.y + s.h - 1);
@@ -114,7 +121,7 @@ int main(int /*argc*/, char** /*argv*/) {
     RUN_TEST(test_slot_count_equals_seven);
     RUN_TEST(test_archetype_defines_all_slots);
 
-    RUN_TEST(test_album_art_slot_is_centered);
+    RUN_TEST(test_album_art_slot_is_full_bleed);
     RUN_TEST(test_album_art_slot_is_square);
 
     RUN_TEST(test_all_slots_within_inscribed_disc);

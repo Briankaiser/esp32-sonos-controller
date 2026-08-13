@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include "state.h"
+#include "gena_parse.h"
 
 namespace sonos {
 
@@ -68,7 +69,15 @@ namespace playback {
     void          flush_volume(const SpeakerInfo& speaker);        // cmd_task — send pending desired volume
     void          poll(const SpeakerInfo& speaker);                // sonos task — fetches transport + volume
     void          poll_volume(const SpeakerInfo& speaker);         // sonos task — fetches volume/mute only
+    void          poll_position(const SpeakerInfo& speaker);       // sonos task — GetPositionInfo resync only (event mode)
     uint32_t      poll_interval_ms();                              // sonos task: 500ms if boost active, else kPollIntervalMs
+
+    // GENA event ingestion (event_task — eventing.cpp). Writes go through the
+    // same mutex-protected state as polls; a poll whose SOAP calls overlapped
+    // an ingest discards its result (recency guard) so stale data never wins.
+    void          ingest_event_transport(const sonos::gena::AVTransportEvent& ev);
+    void          ingest_event_rendering(const sonos::gena::RenderingControlEvent& ev);
+    bool          take_position_resync();                          // sonos task — consume pending resync request
 }
 
 } // namespace sonos

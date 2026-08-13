@@ -7,14 +7,12 @@ namespace {
 
     void clear_highlight(lv_obj_t* item) {
         if (!item) return;
-        lv_obj_set_style_border_width(item, 0, 0);
+        lv_obj_remove_state(item, LV_STATE_USER_1);
     }
 
     void apply_highlight(lv_obj_t* item) {
         if (!item) return;
-        lv_obj_set_style_border_width(item, 3, 0);
-        lv_obj_set_style_border_color(item, accent::get(), 0);
-        lv_obj_set_style_border_opa(item, LV_OPA_COVER, 0);
+        lv_obj_add_state(item, LV_STATE_USER_1);
     }
 }
 

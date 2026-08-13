@@ -6,10 +6,12 @@
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
 #include "../theme/accent.h"
+#include "list_btn.h"
 #include "../../app/sonos/art.h"
 #include "../../app/sonos/state.h"
 #include "../../bsp/bsp.h"
 #include <lvgl.h>
+#include <math.h>
 
 // ── Static widget handles (UI task only) ──────────────────────────────────────
 
@@ -29,8 +31,6 @@ static lv_obj_t*          s_loading_overlay    = nullptr;
 static bool               s_loading_dismissed  = false;
 static lv_obj_t*          s_status_cont        = nullptr;
 static lv_obj_t*          s_favorites_overlay       = nullptr;
-static lv_obj_t*          s_favorites_list          = nullptr;
-static uint32_t           s_favorites_version_built = 0;
 static lv_obj_t*          s_art_cont                = nullptr;
 static sonos::PlaybackState s_last;
 
@@ -119,10 +119,17 @@ lv_obj_t* screens::now_playing_create() {
 
     // ── SLOT_TRACK_INFO — frosted overlay band with three stacked labels ──────
     lv_obj_t* info = slot_container(scr, SLOT_TRACK_INFO);
-    // Frosted dark backdrop so art is visible but text stays readable
+    // Frosted dark backdrop so art is visible but text stays readable — same
+    // "illuminated surface" language as the modal overlays: dark fill and an
+    // accent hairline border that tracks the album-art accent. No blur glow
+    // here: this band sits over full-bleed art that repaints on every track
+    // change, and a shadow would re-blur with it for no real visual gain.
     lv_obj_set_style_bg_color(info, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(info, LV_OPA_50, 0);
-    lv_obj_set_style_radius(info, 12, 0);
+    lv_obj_set_style_radius(info, 18, 0);
+    lv_obj_set_style_border_width(info, 1, 0);
+    lv_obj_set_style_border_opa(info, LV_OPA_50, 0);
+    accent::bind(info, LV_STYLE_BORDER_COLOR);
     lv_obj_set_layout(info, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(info, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -153,48 +160,63 @@ lv_obj_t* screens::now_playing_create() {
     lv_label_set_long_mode(s_album_lbl, LV_LABEL_LONG_DOT);
     lv_obj_set_size(s_album_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Body)));
 
-    // ── SLOT_TRANSPORT — prev / play-pause / next button row ─────────────────
+    // ── SLOT_TRANSPORT — prev / play-pause / next as equal circular discs ────
+    // Widen the row symmetrically about the display centre so the outer discs
+    // reach the bezel by an equal amount on each side — an intentional,
+    // symmetric bleed rather than the lopsided clip of a left-packed flex row.
+    // All geometry derives from the slot (already centred), so no pixel
+    // literals or board names leak into screen code.
     s_transport_cont = slot_container(scr, SLOT_TRANSPORT);
+    {
+        const LayoutSlot& ts = slot(SLOT_TRANSPORT);
+        int32_t grow = ts.w / 10;  // gentle symmetric widen per side
+        lv_obj_set_pos(s_transport_cont, ts.x - grow, ts.y);
+        lv_obj_set_size(s_transport_cont, ts.w + 2 * grow, ts.h);
+    }
     lv_obj_set_layout(s_transport_cont, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s_transport_cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_transport_cont,
-        LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    // Previous
-    lv_obj_t* prev_btn = lv_button_create(s_transport_cont);
-    lv_obj_set_flex_grow(prev_btn, 1);
-    lv_obj_set_height(prev_btn, lv_pct(100));
-    lv_obj_set_style_bg_color(prev_btn, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(prev_btn, LV_OPA_40, 0);  // translucent disc so icon pops on light art
-    lv_obj_set_style_radius(prev_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_margin_hor(prev_btn, 4, 0);
-    lv_obj_set_style_border_width(prev_btn, 0, 0);
-    lv_obj_set_style_shadow_width(prev_btn, 0, 0);
-    lv_obj_t* prev_lbl = lv_label_create(prev_btn);
-    lv_label_set_text(prev_lbl, LV_SYMBOL_PREV);
-    lv_obj_set_style_text_font(prev_lbl, font(FontRole::Display), 0);
-    lv_obj_set_style_text_color(prev_lbl, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_center(prev_lbl);
+    // One circular transport disc. All three share a size and icon colour; the
+    // primary (play/pause) carries a thin accent ring + soft accent glow — the
+    // same "illuminated" emphasis the modal overlays use — so it reads as
+    // primary without a brighter glyph. Ring and glow track the album-art
+    // accent via accent::bind.
+    auto make_disc = [&](const char* symbol, bool primary) -> lv_obj_t* {
+        int32_t d = slot(SLOT_TRANSPORT).h * 6 / 5;  // discs a touch larger than the row
+        lv_obj_t* btn = lv_button_create(s_transport_cont);
+        lv_obj_set_size(btn, d, d);
+        lv_obj_set_style_bg_color(btn, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_40, 0);  // translucent disc so icon pops on light art
+        lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_shadow_width(btn, 0, 0);
+        if (primary) {
+            // Bold accent ring marks the primary control. A blur-shadow "glow"
+            // was tried here but re-blurred on every overlapping redraw (arc,
+            // art refresh, 1s interpolation) and hurt responsiveness — a crisp
+            // ring gives the same emphasis for near-zero render cost.
+            lv_obj_set_style_border_width(btn, 3, 0);
+            lv_obj_set_style_border_opa(btn, LV_OPA_COVER, 0);
+            accent::bind(btn, LV_STYLE_BORDER_COLOR);
+        }
+        lv_obj_t* lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, symbol);
+        lv_obj_set_style_text_font(lbl, font(FontRole::Display), 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xCCCCCC), 0);
+        lv_obj_center(lbl);
+        return btn;
+    };
+
+    lv_obj_t* prev_btn = make_disc(LV_SYMBOL_PREV, false);
     lv_obj_add_event_cb(prev_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Previous);
         dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
-    // Play/Pause
-    lv_obj_t* play_btn = lv_button_create(s_transport_cont);
-    lv_obj_set_flex_grow(play_btn, 1);
-    lv_obj_set_height(play_btn, lv_pct(100));
-    lv_obj_set_style_bg_color(play_btn, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(play_btn, LV_OPA_40, 0);
-    lv_obj_set_style_radius(play_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_margin_hor(play_btn, 4, 0);
-    lv_obj_set_style_border_width(play_btn, 0, 0);
-    lv_obj_set_style_shadow_width(play_btn, 0, 0);
-    s_play_btn_lbl = lv_label_create(play_btn);
-    lv_label_set_text(s_play_btn_lbl, LV_SYMBOL_PLAY);
-    lv_obj_set_style_text_font(s_play_btn_lbl, font(FontRole::Display), 0);
-    lv_obj_set_style_text_color(s_play_btn_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(s_play_btn_lbl);
+    lv_obj_t* play_btn = make_disc(LV_SYMBOL_PLAY, true);
+    s_play_btn_lbl = lv_obj_get_child(play_btn, 0);
     lv_obj_add_event_cb(play_btn, [](lv_event_t*) {
         bool playing = s_last.transport_state == sonos::TransportState::Playing;
         sonos::playback::enqueue_command(
@@ -204,21 +226,7 @@ lv_obj_t* screens::now_playing_create() {
         dim_transport();
     }, LV_EVENT_PRESSED, nullptr);
 
-    // Next
-    lv_obj_t* next_btn = lv_button_create(s_transport_cont);
-    lv_obj_set_flex_grow(next_btn, 1);
-    lv_obj_set_height(next_btn, lv_pct(100));
-    lv_obj_set_style_bg_color(next_btn, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(next_btn, LV_OPA_40, 0);
-    lv_obj_set_style_radius(next_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_margin_hor(next_btn, 4, 0);
-    lv_obj_set_style_border_width(next_btn, 0, 0);
-    lv_obj_set_style_shadow_width(next_btn, 0, 0);
-    lv_obj_t* next_lbl = lv_label_create(next_btn);
-    lv_label_set_text(next_lbl, LV_SYMBOL_NEXT);
-    lv_obj_set_style_text_font(next_lbl, font(FontRole::Display), 0);
-    lv_obj_set_style_text_color(next_lbl, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_center(next_lbl);
+    lv_obj_t* next_btn = make_disc(LV_SYMBOL_NEXT, false);
     lv_obj_add_event_cb(next_btn, [](lv_event_t*) {
         sonos::playback::enqueue_command(sonos::PlaybackCommand::Next);
         dim_transport();
@@ -230,26 +238,45 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_size(s_progress_bar, lv_pct(100), lv_pct(100));
     lv_bar_set_range(s_progress_bar, 0, 100);
     lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
+    // Stadium caps on both track and fill to match the pill vocabulary
+    lv_obj_set_style_radius(s_progress_bar, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_progress_bar, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
     accent::bind_indicator(s_progress_bar);      // fill tracks accent color
     accent::bind_contrast_track(s_progress_bar); // track is white/black for contrast
 
     // ── SLOT_VOLUME_ARC — visual placeholder (no command wiring until add-encoder-volume) ──
     lv_obj_t* vol_cont = layout_container(scr, SLOT_VOLUME_ARC);
-    lv_obj_remove_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // sits above transport — must not absorb touch
+    lv_obj_remove_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // must not absorb touch meant for the art
     if constexpr (kDisplay.has_encoder) {
         s_volume_arc = lv_arc_create(vol_cont);
         // 97% of the 480×480 slot → 466×466 arc, visual radius ≈232px (near display edge)
         lv_obj_set_size(s_volume_arc, lv_pct(97), lv_pct(97));
         lv_obj_align(s_volume_arc, LV_ALIGN_CENTER, 0, 0);
-        lv_arc_set_rotation(s_volume_arc, 135);
-        lv_arc_set_bg_angles(s_volume_arc, 0, 270);
-        lv_arc_set_value(s_volume_arc, 50);
+        // The two ends sit level with the track-info card's bottom edge on each
+        // side; the body sweeps up and over the top (12 o'clock), leaving the
+        // bottom open. Both offsets derive from the card slot + arc radius, so
+        // nothing is hardcoded and it stays correct if the layout changes. LVGL
+        // angles: 0°=3 o'clock, increasing clockwise; [180-end_off, 360+end_off]
+        // starts at the left end and sweeps through the top (270°).
+        {
+            int32_t arc_r = (kDisplay.h * 97 / 100) / 2;
+            int32_t drop  = (slot(SLOT_TRACK_INFO).y + slot(SLOT_TRACK_INFO).h)
+                            - kDisplay.h / 2;  // card-bottom offset below centre
+            float ratio = (float)drop / (float)arc_r;
+            if (ratio > 1.0f) ratio = 1.0f;
+            int32_t end_off = (int32_t)(asinf(ratio) * 180.0f / 3.14159265f);
+            lv_arc_set_rotation(s_volume_arc, 0);
+            lv_arc_set_bg_angles(s_volume_arc, 180 - end_off, 360 + end_off);
+        }
+        lv_arc_set_value(s_volume_arc, 50);  // NORMAL fill: from the left end, up and over
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0xD4A843), LV_PART_INDICATOR);
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(s_volume_arc, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
         lv_obj_set_style_arc_opa(s_volume_arc, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_MAIN);
         lv_obj_set_style_arc_width(s_volume_arc, 12, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_rounded(s_volume_arc, true, LV_PART_INDICATOR);  // rounded fill cap
+        lv_obj_set_style_arc_rounded(s_volume_arc, true, LV_PART_MAIN);       // rounded track ends
         lv_obj_remove_flag(s_volume_arc, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(s_volume_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     } else {
@@ -258,6 +285,10 @@ lv_obj_t* screens::now_playing_create() {
         lv_obj_align(slider, LV_ALIGN_CENTER, 0, 0);
         lv_slider_set_value(slider, 50, LV_ANIM_OFF);
     }
+    // Drop the arc just above the album-art background so the transport discs
+    // (and everything else) layer visually on top of it where they overlap at
+    // the edge, rather than the arc drawing over the discs.
+    lv_obj_move_to_index(vol_cont, 1);
 
     // ── SLOT_STATUS — settings entry point (gear icon) ──────────────────────
     s_status_cont = slot_container(scr, SLOT_STATUS);
@@ -298,78 +329,129 @@ lv_obj_t* screens::now_playing_create() {
 // ── now_playing_open_favorites_overlay ───────────────────────────────────────
 
 void screens::now_playing_open_favorites_overlay() {
+    if (s_favorites_overlay) return;
+
     FavoritesState fav = favorites::snapshot();
 
-    // Build or rebuild the overlay if it doesn't exist yet or favorites changed
-    if (!s_favorites_overlay) {
-        // Opaque background — no per-pixel blending with art = fast render
-        s_favorites_overlay = lv_obj_create(lv_layer_top());
-        lv_obj_set_size(s_favorites_overlay, lv_pct(100), lv_pct(100));
-        lv_obj_set_style_bg_color(s_favorites_overlay, lv_color_hex(0x111111), 0);
-        lv_obj_set_style_bg_opa(s_favorites_overlay, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(s_favorites_overlay, 0, 0);
-        lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_SCROLLABLE);
-        // Tap outside list → hide (not delete; preserved for fast re-open)
-        lv_obj_add_event_cb(s_favorites_overlay, [](lv_event_t* e) {
-            if (lv_event_get_target(e) == s_favorites_overlay) {
-                lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
+    s_favorites_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_favorites_overlay, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(s_favorites_overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_favorites_overlay, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_favorites_overlay, 0, 0);
+    lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_favorites_overlay, [](lv_event_t* e) {
+        if (lv_event_get_target(e) == s_favorites_overlay) {
+            lv_obj_delete(s_favorites_overlay);
+            s_favorites_overlay = nullptr;
+            nav::clear_list();
+        }
+    }, LV_EVENT_CLICKED, nullptr);
+
+    const LayoutSlot& ls = slot(SLOT_LIST);
+    lv_color_t ac = accent::get();
+    const int32_t cw = ls.w - 16;
+    const int32_t ch = ls.h - 16;
+
+    lv_obj_t* card = lv_obj_create(s_favorites_overlay);
+    lv_obj_set_pos(card, ls.x + 8, ls.y + 8);
+    lv_obj_set_size(card, cw, ch);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x1A1A1A), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_color(card, ac, 0);
+    lv_obj_set_style_border_opa(card, LV_OPA_40, 0);
+    lv_obj_set_style_radius(card, 18, 0);
+    lv_obj_set_style_clip_corner(card, true, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+    lv_obj_set_style_shadow_width(card, 24, 0);
+    lv_obj_set_style_shadow_spread(card, 6, 0);
+    lv_obj_set_style_shadow_color(card, ac, 0);
+    lv_obj_set_style_shadow_opa(card, LV_OPA_30, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* hd = lv_obj_create(card);
+    lv_obj_set_pos(hd, 0, 0);
+    lv_obj_set_size(hd, cw, 52);
+    lv_obj_set_style_bg_color(hd, ac, 0);
+    lv_obj_set_style_bg_opa(hd, LV_OPA_30, 0);
+    lv_obj_set_style_border_side(hd, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(hd, 2, 0);
+    lv_obj_set_style_border_color(hd, ac, 0);
+    lv_obj_set_style_border_opa(hd, LV_OPA_50, 0);
+    lv_obj_set_style_radius(hd, 0, 0);
+    lv_obj_set_style_pad_all(hd, 0, 0);
+    lv_obj_remove_flag(hd, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* hd_lbl = lv_label_create(hd);
+    lv_label_set_text(hd_lbl, "Favorites");
+    lv_obj_set_style_text_font(hd_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(hd_lbl, ac, 0);
+    lv_obj_align(hd_lbl, LV_ALIGN_LEFT_MID, 20, 0);
+
+    lv_obj_t* list = lv_list_create(card);
+    lv_obj_set_pos(list, 0, 52);
+    lv_obj_set_size(list, cw, ch - 52 - 72);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_radius(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_set_style_pad_row(list, 4, 0);
+
+    if (!fav.fetched || fav.items.empty()) {
+        lv_obj_t* empty_btn = lv_list_add_button(list, nullptr,
+            fav.fetched ? "No favorites" : "Loading...");
+        lv_obj_set_style_bg_color(empty_btn, lv_color_hex(0x1A1A1A), 0);
+        lv_obj_set_style_bg_opa(empty_btn, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_color(empty_btn, lv_color_hex(0x888888), 0);
+        lv_obj_clear_flag(empty_btn, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        // Use index stored as intptr — no heap allocation needed
+        for (int idx = 0; idx < (int)fav.items.size(); ++idx) {
+            lv_obj_t* btn = lv_list_add_button(list, nullptr,
+                fav.items[idx].title.c_str());
+            apply_list_btn_style(btn, lv_color_hex(0xEEEEEE));
+            lv_obj_set_ext_click_area(btn, 10);
+            lv_obj_set_user_data(btn, (void*)(intptr_t)idx);
+            lv_obj_add_event_cb(btn, [](lv_event_t* e) {
+                lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
+                int i = (int)(intptr_t)lv_obj_get_user_data(b);
+                FavoritesState f = favorites::snapshot();
+                if (i >= 0 && i < (int)f.items.size()) {
+                    sonos::playback::set_favorite(f.items[i].uri, f.items[i].metadata,
+                                                  f.items[i].metadata_ready);
+                    sonos::playback::enqueue_command(sonos::PlaybackCommand::PlayFavorite);
+                }
+                lv_obj_delete(s_favorites_overlay);
+                s_favorites_overlay = nullptr;
                 nav::clear_list();
-            }
-        }, LV_EVENT_CLICKED, nullptr);
-
-        const LayoutSlot& ls = slot(SLOT_LIST);
-        s_favorites_list = lv_list_create(s_favorites_overlay);
-        lv_obj_set_pos(s_favorites_list, ls.x + 8, ls.y + 8);
-        lv_obj_set_size(s_favorites_list, ls.w - 16, ls.h - 16);
-        lv_obj_set_style_bg_color(s_favorites_list, lv_color_hex(0x1E1E1E), 0);
-        lv_obj_set_style_border_width(s_favorites_list, 0, 0);
-        lv_obj_set_style_radius(s_favorites_list, 16, 0);
-
-        s_favorites_version_built = 0;  // force populate below
-    }
-
-    // Rebuild list contents when favorites data changes
-    if (fav.version != s_favorites_version_built) {
-        s_favorites_version_built = fav.version;
-        lv_obj_clean(s_favorites_list);  // remove all children
-
-        if (!fav.fetched || fav.items.empty()) {
-            lv_obj_t* empty_btn = lv_list_add_button(s_favorites_list, nullptr,
-                fav.fetched ? "No favorites" : "Loading...");
-            lv_obj_set_style_text_color(empty_btn, lv_color_hex(0x888888), 0);
-            lv_obj_clear_flag(empty_btn, LV_OBJ_FLAG_CLICKABLE);
-        } else {
-            // Use index stored as intptr — no heap allocation, safe across hide/show
-            for (int idx = 0; idx < (int)fav.items.size(); ++idx) {
-                lv_obj_t* btn = lv_list_add_button(s_favorites_list, nullptr,
-                    fav.items[idx].title.c_str());
-                lv_obj_set_height(btn, 84);
-                lv_obj_set_style_text_color(btn, lv_color_hex(0xEEEEEE), 0);
-                lv_obj_set_style_text_font(btn, font(FontRole::Title), 0);
-                lv_obj_set_style_pad_ver(btn, 16, 0);
-                lv_obj_set_style_pad_hor(btn, 16, 0);
-                lv_obj_set_ext_click_area(btn, 10);
-                lv_obj_t* lbl = lv_obj_get_child(btn, 0);
-                if (lbl) { lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT); lv_obj_set_width(lbl, lv_pct(100)); }
-                lv_obj_set_user_data(btn, (void*)(intptr_t)idx);
-                lv_obj_add_event_cb(btn, [](lv_event_t* e) {
-                    lv_obj_t* b = static_cast<lv_obj_t*>(lv_event_get_target(e));
-                    int i = (int)(intptr_t)lv_obj_get_user_data(b);
-                    FavoritesState f = favorites::snapshot();
-                    if (i >= 0 && i < (int)f.items.size()) {
-                        sonos::playback::set_favorite(f.items[i].uri, f.items[i].metadata,
-                                                      f.items[i].metadata_ready);
-                        sonos::playback::enqueue_command(sonos::PlaybackCommand::PlayFavorite);
-                    }
-                    lv_obj_add_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
-                    nav::clear_list();
-                }, LV_EVENT_CLICKED, nullptr);
-            }
+            }, LV_EVENT_CLICKED, nullptr);
         }
     }
 
-    lv_obj_remove_flag(s_favorites_overlay, LV_OBJ_FLAG_HIDDEN);
-    nav::register_list(s_favorites_list);
+    // Cancel — fixed at the bottom of the card
+    lv_obj_t* cancel_btn = lv_obj_create(card);
+    lv_obj_set_pos(cancel_btn, 0, ch - 72);
+    lv_obj_set_size(cancel_btn, cw, 72);
+    lv_obj_set_style_bg_color(cancel_btn, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_opa(cancel_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_side(cancel_btn, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(cancel_btn, 1, 0);
+    lv_obj_set_style_border_color(cancel_btn, ac, 0);
+    lv_obj_set_style_border_opa(cancel_btn, LV_OPA_20, 0);
+    lv_obj_set_style_radius(cancel_btn, 0, 0);
+    lv_obj_set_style_pad_all(cancel_btn, 0, 0);
+    lv_obj_remove_flag(cancel_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t* cancel_lbl = lv_label_create(cancel_btn);
+    lv_label_set_text(cancel_lbl, "Cancel");
+    lv_obj_set_style_text_font(cancel_lbl, font(FontRole::Body), 0);
+    lv_obj_set_style_text_color(cancel_lbl, lv_color_hex(0x888888), 0);
+    lv_obj_align(cancel_lbl, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_event_cb(cancel_btn, [](lv_event_t*) {
+        lv_obj_delete(s_favorites_overlay);
+        s_favorites_overlay = nullptr;
+        nav::clear_list();
+    }, LV_EVENT_CLICKED, nullptr);
+
+    nav::register_list(list);
 }
 
 
@@ -487,7 +569,20 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
             LV_PART_INDICATOR);
     }
 
-    // Update album art and accent when a new decode is ready
+    // Album art is applied by now_playing_refresh_art(), driven every UI frame
+    // from the main loop — decoupled from playback-state changes so a freshly
+    // decoded frame appears within a frame rather than waiting for the next
+    // pb.version bump (which, under eventing, may be tens of seconds away).
+    now_playing_refresh_art();
+}
+
+// ── now_playing_refresh_art ─────────────────────────────────────────────────
+// Applies the latest decoded album art (and its accent) to the screen when a
+// new decode is ready. Idempotent: no-ops when the art version is unchanged,
+// so it is safe — and cheap — to call every UI frame. MUST run on the UI task
+// (core 1) only, like all other lv_* calls here.
+void screens::now_playing_refresh_art() {
+    if (!s_art_img) return;  // screen not built yet
     ArtState art = art::snapshot();
     if (art.version != s_art_version && art.pixels != nullptr) {
         s_art_version               = art.version;
@@ -500,10 +595,8 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
         s_art_dsc.data              = art.pixels;
         lv_image_set_src(s_art_img, &s_art_dsc);
         lv_obj_remove_flag(s_art_img, LV_OBJ_FLAG_HIDDEN);
-
         lv_color_t adjusted = accent::adjusted_for_legibility(
             art.accent, lv_color_hex(0x1A1A1A));
         accent::set(adjusted, 400);
     }
-
 }

@@ -22,8 +22,8 @@ static bool ct_equal(const char* a, const char* b) {
 void register_handler(WebServer& server) {
     s_srv = &server;
 
-    const char* hdrs[] = {"X-OTA-Password"};
-    server.collectHeaders(hdrs, 1);
+    const char* hdrs[] = {"X-OTA-Password", "Content-Type"};
+    server.collectHeaders(hdrs, 2);
 
     // Response handler runs after the upload is fully received.
     auto on_complete = []() {

@@ -405,6 +405,7 @@ static void ui_task(void* /*arg*/) {
  */
 void setup() {
     Serial.begin(115200);
+    Serial.println("[boot] *** OTA test build — add-error-state-handling ***");
 
     // Hardware init (I2C, PCF8574, backlight off) — runs on both portal and
     // normal boot paths so the display is available before the provisioning check.

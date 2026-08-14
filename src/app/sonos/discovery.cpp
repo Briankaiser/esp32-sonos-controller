@@ -338,7 +338,6 @@ static std::vector<ZoneGroup> parse_zone_group_state(const String& decoded,
         pos = e + 12;
     }
 
-    Serial.printf("[Sonos] topology updated: %u group(s)\n", (unsigned)groups.size());
     return groups;
 }
 
@@ -389,11 +388,26 @@ static void publish_group_uuid(const std::vector<ZoneGroup>& groups, const Strin
 // event or cycle converges — accepted rather than holding the state mutex
 // across parsing.
 
+// Sonos fires ZoneGroupTopology events on every transport state change (play,
+// pause, next, etc.), not just on actual group changes. Skip the update when
+// the parsed groups are structurally identical to avoid redundant state writes
+// and log spam during normal playback.
+static bool groups_equal(const std::vector<ZoneGroup>& a, const std::vector<ZoneGroup>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++) {
+        if (a[i].coordinator_uuid != b[i].coordinator_uuid) return false;
+        if (a[i].member_uuids.size() != b[i].member_uuids.size()) return false;
+    }
+    return true;
+}
+
 void sonos::discovery::ingest_topology_xml(const String& decoded_zgs) {
     SonosState st = sonos::state::snapshot();
     if (st.speakers.empty()) return;  // no speaker list yet to correlate against
     std::vector<ZoneGroup> groups = parse_zone_group_state(decoded_zgs, st.speakers);
     if (groups.empty()) return;       // malformed/empty event — keep current topology
+    if (groups_equal(groups, st.groups)) return;  // no structural change
+    Serial.printf("[Sonos] topology updated: %u group(s)\n", (unsigned)groups.size());
     st.groups = groups;
     // st.speakers / home_room_idx carried through unchanged: an event never
     // removes speakers merely absent from its payload.
@@ -408,6 +422,8 @@ void sonos::discovery::refresh_topology_via_soap() {
     if (st.home_room_idx < 0 || st.home_room_idx >= (int)st.speakers.size()) return;
     std::vector<ZoneGroup> groups = fetch_topology(st.speakers[st.home_room_idx], st.speakers);
     if (groups.empty()) return;
+    if (groups_equal(groups, st.groups)) return;
+    Serial.printf("[Sonos] topology updated: %u group(s)\n", (unsigned)groups.size());
     st.groups = groups;
     sonos::state::update(st);
     publish_group_uuid(groups, st.speakers[st.home_room_idx].uuid);

@@ -121,6 +121,22 @@ void favorites::fetch(const SpeakerInfo& speaker) {
                 fi.metadata_ready = false;
             }
 
+            // The outer upnp:class in FV:2 is always "object.item.sonos-favorite" —
+            // useless for type detection. The actual content class lives inside
+            // r:resMD (HTML-encoded inner DIDL-Lite). Decode and search there.
+            String cls;
+            if (!res_md.isEmpty()) {
+                String inner = html_decode_fav(res_md);
+                cls = xml_field_fav(inner, "upnp:class");
+            }
+            if (cls.isEmpty()) cls = xml_field_fav(elem, "upnp:class");
+
+            if      (cls.indexOf("audioBroadcast")           >= 0) fi.type = FavType::Radio;
+            else if (cls.indexOf("musicAlbum")               >= 0) fi.type = FavType::Album;
+            else if (cls.indexOf("playlistContainer.#Sonos") >= 0) fi.type = FavType::SonosPlaylist;
+            else if (cls.indexOf("playlistContainer")        >= 0) fi.type = FavType::Playlist;
+            else if (cls.indexOf("musicTrack")               >= 0) fi.type = FavType::Track;
+
             if (!fi.title.isEmpty() && !fi.uri.isEmpty()) {
                 items.push_back(fi);
             }

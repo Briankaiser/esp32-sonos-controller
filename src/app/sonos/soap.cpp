@@ -66,10 +66,24 @@ String sonos::soap::call(const String& ip, uint16_t port,
 
     WiFiClient client;
     client.setTimeout(5000);
+    uint32_t t0 = millis();
     if (!client.connect(ip.c_str(), port, 5000)) {
-        Serial.printf("[SOAP] connect failed %s:%u\n", ip.c_str(), (unsigned)port);
-        if (s_net_mutex) xSemaphoreGive(s_net_mutex);
-        return "";
+        bool fast_fail = (millis() - t0) < 150;  // immediate = routing/ARP issue
+        if (fast_fail) {
+            // One retry after a brief settle — handles transient ARP cache eviction
+            // (e.g. boot-time SSDP scan churning the ARP table).
+            client.stop();
+            delay(400);
+            if (!client.connect(ip.c_str(), port, 5000)) {
+                Serial.printf("[SOAP] connect failed %s:%u\n", ip.c_str(), (unsigned)port);
+                if (s_net_mutex) xSemaphoreGive(s_net_mutex);
+                return "";
+            }
+        } else {
+            Serial.printf("[SOAP] connect failed %s:%u\n", ip.c_str(), (unsigned)port);
+            if (s_net_mutex) xSemaphoreGive(s_net_mutex);
+            return "";
+        }
     }
 
     client.printf(

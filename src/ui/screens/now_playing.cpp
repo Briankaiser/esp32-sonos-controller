@@ -404,11 +404,38 @@ void screens::now_playing_open_favorites_overlay() {
         lv_obj_set_style_text_color(empty_btn, lv_color_hex(0x888888), 0);
         lv_obj_clear_flag(empty_btn, LV_OBJ_FLAG_CLICKABLE);
     } else {
+        auto fav_icon = [](FavType t) -> const char* {
+            switch (t) {
+                case FavType::Track:        return LV_SYMBOL_AUDIO;
+                case FavType::Album:        return LV_SYMBOL_IMAGE;
+                case FavType::Playlist:     return LV_SYMBOL_LIST;
+                case FavType::SonosPlaylist: return LV_SYMBOL_LOOP;
+                case FavType::Radio:        return LV_SYMBOL_WIFI;
+                default:                    return LV_SYMBOL_AUDIO;
+            }
+        };
+
         // Use index stored as intptr — no heap allocation needed
         for (int idx = 0; idx < (int)fav.items.size(); ++idx) {
-            lv_obj_t* btn = lv_list_add_button(list, nullptr,
+            lv_obj_t* btn = lv_list_add_button(list, fav_icon(fav.items[idx].type),
                 fav.items[idx].title.c_str());
             apply_list_btn_style(btn, lv_color_hex(0xEEEEEE));
+            // apply_list_btn_style sets lv_pct(100) on the text label, which overflows
+            // the flex row when an icon image is also present. Fix: set text label width
+            // to LV_SIZE_CONTENT so the existing flex_grow=1 (from lv_list_add_button)
+            // fills remaining space correctly. Also tint the icon image to accent color
+            // (lv_image renders symbols via text_color, so set_style_text_color works).
+            if (lv_obj_get_child_count(btn) > 1) {
+                lv_obj_t* icon_img = lv_obj_get_child(btn, 0);
+                lv_obj_t* txt_lbl  = lv_obj_get_child(btn, lv_obj_get_child_count(btn) - 1);
+                if (icon_img) {
+                    lv_obj_set_style_text_color(icon_img, ac, 0);
+                    lv_obj_set_style_pad_right(icon_img, 14, 0);
+                }
+                if (txt_lbl) {
+                    lv_obj_set_width(txt_lbl, LV_SIZE_CONTENT);
+                }
+            }
             lv_obj_set_ext_click_area(btn, 10);
             lv_obj_set_user_data(btn, (void*)(intptr_t)idx);
             lv_obj_add_event_cb(btn, [](lv_event_t* e) {

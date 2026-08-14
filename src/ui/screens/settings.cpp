@@ -411,7 +411,7 @@ void screens::settings_open() {
 
     make_card_header(card, cw, "Settings", ac);
 
-    lv_obj_t* list = make_inner_list(card, cw, 52, ch - 52);
+    lv_obj_t* list = make_inner_list(card, cw, 52, ch - 52 - 72);
 
     // ── Home Room entry ───────────────────────────────────────────────────────
     SonosState st = sonos::state::snapshot();
@@ -442,13 +442,17 @@ void screens::settings_open() {
         }
     }, LV_EVENT_CLICKED, nullptr);
 
-    // ── Device IP — debug aid, not interactive ────────────────────────────────
-    String ip_text = "IP: " + WiFi.localIP().toString();
+    // ── Device IP + SSID — debug aid, not interactive ────────────────────────
+    String ip_text = "IP: " + WiFi.localIP().toString() + "   " + WiFi.SSID();
     lv_obj_t* ip_lbl = lv_list_add_text(list, ip_text.c_str());
     lv_obj_set_style_text_font(ip_lbl, font(FontRole::Caption), 0);
     lv_obj_set_style_text_color(ip_lbl, lv_color_hex(0x555555), 0);
 
     nav::register_list(list);
+
+    lv_obj_t* back_btn = make_back_btn(card, cw, ch, "Back", ac);
+    lv_obj_add_event_cb(back_btn, [](lv_event_t*) { close_settings(); },
+                        LV_EVENT_CLICKED, nullptr);
 }
 
 void screens::settings_open_room_picker() {

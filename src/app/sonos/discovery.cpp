@@ -455,6 +455,13 @@ void sonos::discovery::run_cycle() {
         }
     }
 
+    // When most discovered IPs are unreachable, rapid serial TCP connect-fail
+    // cycles churn lwIP's ARP table and can briefly evict entries for reachable
+    // hosts (including the home room). The first SOAP call to the home room then
+    // fails with EHOSTUNREACH until the ARP entry is re-resolved (~100ms). A short
+    // settle here lets the ARP cache recover before the topology fetch below.
+    if (speakers.size() < locations.size()) delay(400);
+
     // Device description's own <friendlyName> is not the room name — it's an
     // "IP - Sonos Model - RINCON_UUID" string; fetch_topology() below corrects
     // friendly_name to the real room name (and sets invisible) from zone-group

@@ -54,6 +54,7 @@ void register_handler(WebServer& server) {
             s_ota_auth = ct_equal(s_srv->header("X-OTA-Password").c_str(),
                                   prefs::ota_pass().c_str());
             if (s_ota_auth) {
+                Serial.println("[OTA] update started");
                 Update.begin(UPDATE_SIZE_UNKNOWN);
             }
         } else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -63,6 +64,7 @@ void register_handler(WebServer& server) {
         } else if (upload.status == UPLOAD_FILE_END) {
             if (s_ota_auth) {
                 Update.end(true);
+                Serial.printf("[OTA] update complete — %u bytes\n", upload.totalSize);
             }
         }
     };

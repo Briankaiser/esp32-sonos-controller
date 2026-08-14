@@ -35,7 +35,7 @@
 
 - [x] 6.1 Both PlatformIO envs build (`crowpanel_21_round`, `ref_rect_stub`).
 - [ ] 6.2 **[hardware]** No-WiFi: with the AP off/unreachable, the No-WiFi screen appears; `/screenshot` captured. Confirm → full factory reset → reboots into `OpenSonos-Setup`. Cancel → no change.
-- [ ] 6.3 **[hardware]** No-Sonos: WiFi up, all speakers powered off (or off-network) → "No Sonos system found" after the bounded window; `/screenshot` captured; auto-recovers when a speaker returns.
+- [x] 6.3 **[hardware]** No-Sonos: WiFi up, all speakers powered off (or off-network) → "No Sonos system found" after the bounded window; `/screenshot` captured; auto-recovers when a speaker returns.
 - [ ] 6.4 **[hardware]** Home-room-offline: put the configured home room offline (e.g., sleeping Roam) while other speakers remain → named "offline" screen; `/screenshot` captured; auto-recovers when it returns.
 - [ ] 6.5 **[hardware]** Auto-recovery has no flicker/thrash across a WiFi bounce and an intermittent-discovery cycle.
 - [x] 6.6 `openspec validate --all --strict` clean; CHANGELOG.md entry under `[Unreleased]`.

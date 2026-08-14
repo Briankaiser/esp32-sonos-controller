@@ -27,7 +27,8 @@ struct ZoneGroup {
 struct SonosState {
     std::vector<SpeakerInfo> speakers;
     std::vector<ZoneGroup>   groups;
-    int                      home_room_idx = -1;
+    int                      home_room_idx          = -1;
+    bool                     initial_discovery_done = false;  // set after first run_cycle completes
 };
 
 namespace sonos::state {

@@ -131,9 +131,9 @@ static void close_settings() {
     nav::clear_list();
 }
 
-// ── settings_open_room_picker ─────────────────────────────────────────────────
+// ── show_room_picker ─────────────────────────────────────────────────
 
-static void settings_open_room_picker(lv_event_t*) {
+static void show_room_picker(lv_event_t*) {
     if (s_picker) return;
 
     s_picker = lv_obj_create(lv_layer_top());
@@ -422,7 +422,7 @@ void screens::settings_open() {
 
     s_room_btn = make_list_btn(list, room_label.c_str());
     lv_obj_set_style_text_color(s_room_btn, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_add_event_cb(s_room_btn, settings_open_room_picker, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(s_room_btn, show_room_picker, LV_EVENT_CLICKED, nullptr);
 
     // ── Manage Groups entry ───────────────────────────────────────────────────
     lv_obj_t* groups_btn = make_list_btn(list, "Manage Groups");
@@ -449,4 +449,8 @@ void screens::settings_open() {
     lv_obj_set_style_text_color(ip_lbl, lv_color_hex(0x555555), 0);
 
     nav::register_list(list);
+}
+
+void screens::settings_open_room_picker() {
+    show_room_picker(nullptr);
 }

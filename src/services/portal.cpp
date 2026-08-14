@@ -26,7 +26,7 @@ button{margin-top:1.5em;width:100%;padding:.7em;font-size:1em;background:#1565c0
 <label>WiFi Network (SSID) <span style=color:red>*</span></label>
 <input name=ssid type=text autocomplete=off required>
 <label>WiFi Password <span style=color:red>*</span></label>
-<input name=pass type=password autocomplete=off required>
+<input name=pass type=password autocomplete=current-password required>
 <label>OTA Password</label>
 <input name=ota type=password autocomplete=off>
 <button type=submit>Save &amp; Reboot</button>
@@ -81,7 +81,7 @@ void portal::run() {
     lv_obj_set_pos(title, lv_pct(20), lv_pct(33));
 
     lv_obj_t* body = lv_label_create(scr);
-    lv_label_set_text(body, "Please connect to OpenSonos-Setup to start setup.");
+    lv_label_set_text(body, "Please connect to Sonos-Controller-Setup to start setup.");
     lv_obj_set_width(body, lv_pct(60));
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_color(body, lv_color_white(), LV_PART_MAIN);
@@ -92,7 +92,7 @@ void portal::run() {
     lv_timer_handler();  // flush the first frame before backlight comes on
     bsp::backlight(255);
 
-    WiFi.softAP("OpenSonos-Setup");
+    WiFi.softAP("Sonos-Controller-Setup");
     delay(100);
 
     // Redirect all DNS queries to the portal IP
@@ -120,7 +120,7 @@ void portal::run() {
     // Debug / hardware-test factory reset endpoint
     s_server.on("/reset", HTTP_GET, []() {
         s_server.send(200, "text/plain",
-            "Factory reset initiated. Reconnect to OpenSonos-Setup after reboot.");
+            "Factory reset initiated. Reconnect to Sonos-Controller-Setup after reboot.");
         s_factory_pending = true;
     });
 
@@ -131,7 +131,7 @@ void portal::run() {
     });
 
     s_server.begin();
-    Serial.println("[portal] AP up — connect to OpenSonos-Setup");
+    Serial.println("[portal] AP up — connect to Sonos-Controller-Setup");
 
     for (;;) {
         s_dns.processNextRequest();

@@ -106,11 +106,11 @@ static String read_line(WiFiClient& client, uint32_t deadline) {
     return line;
 }
 
-// If a fetch makes no read progress for this long, treat it as stalled and
-// give up early rather than burning the full 10s deadline. A stalled speaker
-// or flaky WiFi path otherwise costs 10s per failed attempt (observed: four
-// 10s truncations before art finally rendered).
+// If a non-chunked fetch makes no read progress for this long, bail early.
 static constexpr uint32_t kFetchStallMs = 3000;
+// Chunked CDN-proxied responses (e.g. Spotify via Sonos) can have natural
+// pauses between bursts; allow a longer stall before giving up.
+static constexpr uint32_t kChunkedStallMs = 8000;
 
 // Diagnostics for the last fetch, read by fetch_and_decode's failure logging.
 static uint32_t s_last_fetch_ms       = 0;   // wall time spent in the last fetch
@@ -153,9 +153,13 @@ static size_t fetch_jpeg(const String& url,
     client.printf("GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n\r\n",
                   path.c_str(), speaker_ip.c_str(), (unsigned)speaker_port);
 
-    uint32_t deadline = millis() + 10000;
+    // Sonos proxies Spotify/streaming art from cloud CDN, which can be slow
+    // on cross-subnet WiFi paths (observed ~1-4 KB/s for a ~110 KB JPEG).
+    // 60 s covers a 150 KB image at worst-case 2.5 KB/s; the stall detections
+    // below bail out early when the connection actually drops mid-transfer.
+    uint32_t deadline = millis() + 60000;
     while (!client.available() && time_before(deadline)) delay(5);
-    read_line(client, deadline);  // status line
+    read_line(client, deadline);  // status line (discard)
     bool is_chunked = false;
     while (client.connected() && time_before(deadline)) {
         String line = read_line(client, deadline);
@@ -169,11 +173,18 @@ static size_t fetch_jpeg(const String& url,
         }
     }
 
-    size_t fetched = 0;
+    size_t   fetched       = 0;
+    uint32_t last_progress = millis();
     if (is_chunked) {
         while ((client.connected() || client.available()) && time_before(deadline)) {
             String size_line = read_line(client, deadline);
-            if (size_line.isEmpty()) continue;
+            if (size_line.isEmpty()) {
+                // Empty size line: either still waiting or the connection stalled.
+                if (millis() - last_progress > kChunkedStallMs) {
+                    s_last_fetch_stalled = true; break;
+                }
+                continue;
+            }
             uint32_t chunk_size = strtoul(size_line.c_str(), nullptr, 16);
             if (chunk_size == 0) break;
             // Read chunk body in bursts: readBytes of currently-available data,
@@ -189,9 +200,13 @@ static size_t fetch_jpeg(const String& url,
                         (char*)(s_jpeg_buf + fetched), to_read);
                     fetched += got;
                     i      += (uint32_t)got;
+                    if (got > 0) last_progress = millis();
                 } else if (fetched >= art::kArtJpegBufBytes) {
                     break;
                 } else if (client.connected()) {
+                    if (millis() - last_progress > kChunkedStallMs) {
+                        s_last_fetch_stalled = true; goto done_chunked;
+                    }
                     delay(1);
                     continue;
                 } else {
@@ -202,8 +217,8 @@ static size_t fetch_jpeg(const String& url,
             read_line(client, deadline);  // trailing CRLF after chunk data
             if (fetched >= art::kArtJpegBufBytes) break;
         }
+        done_chunked:;
     } else {
-        uint32_t last_progress = millis();
         while ((client.connected() || client.available()) && time_before(deadline)) {
             int av = client.available();
             if (av > 0 && fetched < art::kArtJpegBufBytes) {
@@ -331,6 +346,20 @@ static void art_task_body(void* /*arg*/) {
         if (st.home_room_idx < 0 || st.home_room_idx >= (int)st.speakers.size()) continue;
 
         const SpeakerInfo& hr = st.speakers[st.home_room_idx];
+
+        // Any Sonos speaker can proxy /getaa for the currently playing track.
+        // Prefer a non-home-room visible speaker: the home room might be a
+        // battery-powered portable (e.g. Roam) on a cross-subnet WiFi path
+        // that proxies streaming art slowly. A plugged-in speaker on the same
+        // subnet as the ESP32 can be orders of magnitude faster.
+        const SpeakerInfo* alt = nullptr;
+        for (const SpeakerInfo& s : st.speakers) {
+            if (s.uuid != hr.uuid && !s.invisible) { alt = &s; break; }
+        }
+        if (alt) {
+            fetch_and_decode(pb.album_art_uri, alt->ip, alt->port);
+            if (art::snapshot().uri == pb.album_art_uri) continue;
+        }
         fetch_and_decode(pb.album_art_uri, hr.ip, hr.port);
     }
 }

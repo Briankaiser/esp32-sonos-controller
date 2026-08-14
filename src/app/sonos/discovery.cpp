@@ -487,18 +487,23 @@ void sonos::discovery::run_cycle() {
     // ── 4.1 & 4.2: Zone-group topology ─────────────────────────────────────
     // Topology fetch updates speakers[].friendly_name with ZoneGroupMember ZoneName.
     // next.speakers must be assigned AFTER fetch_topology so zone names are included.
+    // Use home room as the query target when known; fall back to speakers[0] when no
+    // home room is configured yet (first-run) so the room picker shows real names.
     SonosState next;
     next.home_room_idx = home_room_idx;
 
-    if (home_room_idx >= 0) {
+    if (!speakers.empty()) {
+        const SpeakerInfo& topo_src = (home_room_idx >= 0)
+            ? speakers[home_room_idx] : speakers[0];
         std::vector<ZoneGroup> prev_groups = sonos::state::snapshot().groups;
-        std::vector<ZoneGroup> groups = fetch_topology(speakers[home_room_idx], speakers);
+        std::vector<ZoneGroup> groups = fetch_topology(topo_src, speakers);
         next.groups = groups.empty() ? prev_groups : groups;
     } else {
         next.groups = sonos::state::snapshot().groups;
     }
 
-    next.speakers = speakers;  // assign after fetch_topology has populated zone names
+    next.speakers                 = speakers;  // assign after fetch_topology has populated zone names
+    next.initial_discovery_done   = true;
     sonos::state::update(next);
 
     // Derive group UUID from fresh topology and update playback state once per cycle.

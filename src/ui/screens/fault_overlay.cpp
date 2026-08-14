@@ -1,4 +1,5 @@
 #include "fault_overlay.h"
+#include "settings.h"
 #include "../layout/layout.h"
 #include "../theme/fonts.h"
 #include "../theme/accent.h"
@@ -20,6 +21,7 @@ Fault     s_shown        = Fault::None;
 Fault     s_candidate    = Fault::None;
 int       s_candidate_ct = 0;
 uint32_t  s_last_eval_ms = 0;
+bool      s_room_picker_offered = false; // one-shot: auto-open room picker on first-run
 uint32_t  s_wifi_zero_since_ms = 0;    // when WiFi-up-with-zero-speakers began (0 = not in that state)
 String    s_home_name;                 // last-known home-room friendly name (for the offline screen)
 
@@ -35,9 +37,12 @@ Fault evaluate() {
     }
     SonosState st = sonos::state::snapshot();
     if (st.speakers.empty()) {
+        // Don't start the window until the first discovery cycle has completed —
+        // avoids a false "No Sonos" flash while SSDP + topology are still running.
+        if (!st.initial_discovery_done) { s_wifi_zero_since_ms = 0; return Fault::None; }
         if (s_wifi_zero_since_ms == 0) s_wifi_zero_since_ms = millis();
         if (millis() - s_wifi_zero_since_ms >= kNoSonosWindowMs) return Fault::NoSonos;
-        return Fault::None;  // still within the initial search window — transient
+        return Fault::None;  // still within the search window — transient
     }
     s_wifi_zero_since_ms = 0;
     if (st.home_room_idx >= 0 && st.home_room_idx < (int)st.speakers.size()) {
@@ -134,6 +139,7 @@ void open_confirm() {
 
     // Cancel
     lv_obj_t* cancel = lv_button_create(row);
+    lv_obj_set_size(cancel, 120, 52);
     lv_obj_set_style_bg_color(cancel, lv_color_hex(0x333333), 0);
     lv_obj_set_style_radius(cancel, 10, 0);
     lv_obj_t* cl = lv_label_create(cancel);
@@ -144,6 +150,7 @@ void open_confirm() {
 
     // Confirm — destructive: full factory reset + reboot to portal
     lv_obj_t* confirm = lv_button_create(row);
+    lv_obj_set_size(confirm, 120, 52);
     lv_obj_set_style_bg_color(confirm, ac, 0);
     lv_obj_set_style_radius(confirm, 10, 0);
     lv_obj_t* fl = lv_label_create(confirm);
@@ -170,6 +177,7 @@ void rebuild(Fault f) {
             add_body(card, "Can't reach your WiFi network.");
             lv_color_t ac = accent::get();
             lv_obj_t* btn = lv_button_create(card);
+            lv_obj_set_size(btn, lv_pct(80), 52);
             lv_obj_set_style_bg_color(btn, ac, 0);
             lv_obj_set_style_radius(btn, 10, 0);
             lv_obj_t* bl = lv_label_create(btn);
@@ -205,6 +213,16 @@ void screens::fault_overlay_tick() {
     // Freeze evaluation while the destructive confirm dialog is up — the user is
     // mid-decision and the screen must not be rebuilt out from under them.
     if (s_confirm) return;
+
+    // First-run: if speakers are discovered but no home room is configured,
+    // auto-open the room picker once so the user isn't stuck on "Connecting...".
+    if (!s_room_picker_offered && prefs::home_room().isEmpty()) {
+        SonosState disc = sonos::state::snapshot();
+        if (!disc.speakers.empty()) {
+            s_room_picker_offered = true;
+            screens::settings_open_room_picker();
+        }
+    }
 
     uint32_t now = millis();
     if (now - s_last_eval_ms < kEvalIntervalMs) return;

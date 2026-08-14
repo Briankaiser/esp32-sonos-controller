@@ -62,6 +62,9 @@ static uint32_t    s_btn_down_ms   = 0;
 static lv_obj_t*   s_reset_overlay = nullptr;
 static lv_timer_t* s_reset_timer   = nullptr;
 
+// ── OTA overlay (UI task only) ────────────────────────────────────────────────
+static lv_obj_t*   s_ota_overlay   = nullptr;
+
 // Fires every 1 s while the encoder button is held.
 // Creates / updates the countdown overlay after kResetCountdownStartMs,
 // triggers factory_reset() at kResetTotalMs.  All LVGL calls run on core 1.
@@ -308,6 +311,29 @@ static void ui_task(void* /*arg*/) {
 
     // Event loop
     for (;;) {
+        // Show a static overlay the moment a firmware write begins and quiesce all
+        // further rendering — flash writes are CPU-intensive and stall mid-flush,
+        // so zero dirty regions == zero flicker during the update.
+        if (ota::is_active()) {
+            if (!s_ota_overlay) {
+                s_ota_overlay = lv_obj_create(lv_layer_top());
+                lv_obj_set_size(s_ota_overlay, LV_PCT(100), LV_PCT(100));
+                lv_obj_set_style_bg_color(s_ota_overlay, lv_color_black(), 0);
+                lv_obj_set_style_bg_opa(s_ota_overlay, LV_OPA_COVER, 0);
+                lv_obj_set_style_border_width(s_ota_overlay, 0, 0);
+                lv_obj_remove_flag(s_ota_overlay, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_add_flag(s_ota_overlay, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_t* lbl = lv_label_create(s_ota_overlay);
+                lv_label_set_text(lbl, "Updating firmware\nDo not power off");
+                lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+                lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+                lv_obj_center(lbl);
+            }
+            lv_timer_handler();
+            vTaskDelay(pdMS_TO_TICKS(16));
+            continue;
+        }
+
         // If idle and a touch is active, wake the display and suppress this touch
         // (handled in the BSP touch callback via now_playing_consume_wake_touch()).
         if (screens::now_playing_is_idle()) {

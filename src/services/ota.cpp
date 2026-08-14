@@ -5,8 +5,9 @@
 
 namespace ota {
 
-static WebServer* s_srv     = nullptr;
-static bool       s_ota_auth = false;
+static WebServer*   s_srv        = nullptr;
+static bool         s_ota_auth   = false;
+static volatile bool s_ota_active = false;  // set on auth-start; cleared on failure/abort
 
 // Length-constant string comparison to prevent timing oracle on the password.
 static bool ct_equal(const char* a, const char* b) {
@@ -34,6 +35,7 @@ void register_handler(WebServer& server) {
         }
         s_ota_auth = false; // reset before restart so it doesn't persist across boots
         if (Update.hasError()) {
+            s_ota_active = false;
             s_srv->send(400, "text/plain", Update.errorString());
         } else {
             s_srv->send(200, "text/plain", "OK");
@@ -54,6 +56,7 @@ void register_handler(WebServer& server) {
             s_ota_auth = ct_equal(s_srv->header("X-OTA-Password").c_str(),
                                   prefs::ota_pass().c_str());
             if (s_ota_auth) {
+                s_ota_active = true;
                 Serial.println("[OTA] update started");
                 Update.begin(UPDATE_SIZE_UNKNOWN);
             }
@@ -66,10 +69,16 @@ void register_handler(WebServer& server) {
                 Update.end(true);
                 Serial.printf("[OTA] update complete — %u bytes\n", upload.totalSize);
             }
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+            s_ota_active = false;
+            s_ota_auth   = false;
+            Update.end(false);
         }
     };
 
     server.on("/update", HTTP_POST, on_complete, on_upload);
 }
+
+bool is_active() { return s_ota_active; }
 
 } // namespace ota

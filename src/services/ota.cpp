@@ -1,13 +1,14 @@
 #include "ota.h"
 
 #include <Update.h>
+#include <atomic>
 #include "services/prefs.h"
 
 namespace ota {
 
-static WebServer*   s_srv        = nullptr;
-static bool         s_ota_auth   = false;
-static volatile bool s_ota_active = false;  // set on auth-start; cleared on failure/abort
+static WebServer*          s_srv        = nullptr;
+static bool                s_ota_auth   = false;
+static std::atomic<bool>   s_ota_active{false};  // acquire/release across cores
 
 // Length-constant string comparison to prevent timing oracle on the password.
 static bool ct_equal(const char* a, const char* b) {
@@ -35,7 +36,7 @@ void register_handler(WebServer& server) {
         }
         s_ota_auth = false; // reset before restart so it doesn't persist across boots
         if (Update.hasError()) {
-            s_ota_active = false;
+            s_ota_active.store(false, std::memory_order_release);
             s_srv->send(400, "text/plain", Update.errorString());
         } else {
             s_srv->send(200, "text/plain", "OK");
@@ -56,8 +57,9 @@ void register_handler(WebServer& server) {
             s_ota_auth = ct_equal(s_srv->header("X-OTA-Password").c_str(),
                                   prefs::ota_pass().c_str());
             if (s_ota_auth) {
-                s_ota_active = true;
+                s_ota_active.store(true, std::memory_order_release);
                 Serial.println("[OTA] update started");
+                delay(100);  // let UI task render the overlay before flash writes begin
                 Update.begin(UPDATE_SIZE_UNKNOWN);
             }
         } else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -70,7 +72,7 @@ void register_handler(WebServer& server) {
                 Serial.printf("[OTA] update complete — %u bytes\n", upload.totalSize);
             }
         } else if (upload.status == UPLOAD_FILE_ABORTED) {
-            s_ota_active = false;
+            s_ota_active.store(false, std::memory_order_release);
             s_ota_auth   = false;
             Update.end(false);
         }
@@ -79,6 +81,6 @@ void register_handler(WebServer& server) {
     server.on("/update", HTTP_POST, on_complete, on_upload);
 }
 
-bool is_active() { return s_ota_active; }
+bool is_active() { return s_ota_active.load(std::memory_order_acquire); }
 
 } // namespace ota

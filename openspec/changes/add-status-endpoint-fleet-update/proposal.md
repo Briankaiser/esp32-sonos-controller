@@ -25,10 +25,13 @@ Sonos cloud. `/status` reports only the device's own already-cached state.
   - `speaker_count`: number of discovered Sonos speakers.
   - `home_room_name`, `home_room_uuid`: the configured/resolved home room.
   - `state_source`: `"gena"` when eventing is healthy, else `"polling"`.
-- **Build-time firmware version** injected as `-DOPENSONOS_FW_VERSION` (derived
-  from `git describe`, with a fallback when git metadata is unavailable). This
-  is a prerequisite for the updater's "skip already-updated" and "confirm the
-  new firmware booted" behavior — the codebase has no version string today.
+- **Build-time firmware version** derived from `git describe` (with a fallback
+  when git metadata is unavailable) and compiled in via a generated header. The
+  same value is embedded in the firmware image behind a greppable marker so a
+  distributed `.bin` is self-describing — the updater reads the target version
+  straight from the image (falling back to a sidecar file). This is a
+  prerequisite for the updater's "skip already-updated" and "confirm the new
+  firmware booted" behavior — the codebase has no version string today.
 - **New host-side fleet-update CLI** (`tools/fleet_update.py`, Python 3 standard
   library only, no pip dependencies): scans the local subnet for controllers via
   `GET /status`, lists them by home room name then IP with current firmware
@@ -62,9 +65,9 @@ endpoint.
   `s_web_server` in `src/main.cpp` alongside `screenshot`/`ota`/`rooms`. Reads
   existing `sonos::state::snapshot()`, `prefs::home_room()`, `WiFi.*`, and
   `sonos::eventing::healthy()`. No new tasks, no UI, nothing on screen.
-- **Build**: `platformio.ini` gains a version build flag; a small PlatformIO
-  `extra_scripts` helper computes it from `git describe`. Applies to both
-  `crowpanel_21_round` and `ref_rect_stub` envs.
+- **Build**: a small PlatformIO `extra_scripts` helper computes the version from
+  `git describe`, generates a header the firmware includes, and writes a sidecar
+  next to the `.bin`. Applies to both `crowpanel_21_round` and `ref_rect_stub` envs.
 - **Host tooling**: new `tools/fleet_update.py`; no third-party packages. Reads
   the OTA password from `OPENSONOS_OTA_PASSWORD`, prompting (hidden input) if unset.
 - **Docs**: `CHANGELOG.md` `## [Unreleased]` entry; `AGENTS.md`/README pointer to

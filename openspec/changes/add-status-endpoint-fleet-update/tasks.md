@@ -15,14 +15,15 @@
 ## 3. Fleet-update host tool
 
 - [x] 3.1 Create `tools/fleet_update.py` (Python 3 stdlib only — `urllib`, `concurrent.futures`, `argparse`, `getpass`, `ipaddress`, `socket`).
-- [x] 3.2 Implement concurrent subnet discovery: auto-detect the local `/24`, accept `--subnet`/CIDR override, probe `GET /status` per host with a short timeout, and match `device == "opensonos-controller"`; ignore non-responding / non-JSON / non-matching hosts.
+- [x] 3.2 Implement concurrent subnet discovery: auto-detect the local subnet from the interface netmask (not a hardcoded `/24`; caps oversized ranges to a `/24` with a `--subnet` hint), accept `--subnet`/CIDR override, probe `GET /status` per host with a short timeout, and match `device == "opensonos-controller"`; ignore non-responding / non-JSON / non-matching hosts.
 - [x] 3.3 List discovered controllers ordered by home room name then IP, showing name, IP, and firmware version; report "none found" and exit cleanly when the scan finds nothing.
-- [x] 3.4 Require explicit operator confirmation after the listing and before the first upload; exit without updating if declined.
+- [x] 3.4 Require explicit operator confirmation after the listing and before the first upload — an interactive yes/no prompt, or a non-interactive `--yes` flag for unattended runs; exit without updating if neither confirms (including a non-interactive run with no flag).
 - [x] 3.5 Read the OTA password from `OPENSONOS_OTA_PASSWORD`, prompting with hidden input (`getpass`) when unset; never require it as a CLI argument.
-- [x] 3.6 Accept the firmware image path as input; default the target version to the sidecar `fw_version.txt` written by task 1.1 (with `--version` as an override for hand-built images), so the operator cannot mistype the version the tool waits for; skip and report any discovered controller already reporting the target version.
+- [x] 3.6 Accept the firmware image path as input; default the target version to the version marker embedded in the `.bin` (self-contained), falling back to the `fw_version.txt` sidecar, with `--version` as an override for hand-built images, so the operator cannot mistype the version the tool waits for; skip and report any discovered controller already reporting the target version.
 - [x] 3.7 Implement per-device update: `POST /update` multipart with `X-OTA-Password`; treat a post-`200` connection drop/reset as expected (device rebooting), and fail hard on `401`/`400`.
 - [x] 3.8 Implement verified completion: poll `GET /status` (through connection-refused/timeout) until the device reports the target `firmware_version`, bounded by a `--timeout` (default ~120 s); then wait a ≥15 s settle floor before the next device.
 - [x] 3.9 Implement abort-on-failure: on verification timeout, stop the run, report the failed controller and the count already updated, and exit non-zero. Updates run strictly sequentially.
+- [x] 3.10 Embed the firmware version behind a greppable `OPENSONOS_FW_VERSION:` marker in the image so a distributed `.bin` is self-describing; the updater reads the target version from it.
 
 ## 4. Documentation
 
@@ -34,5 +35,6 @@
 - [x] 5.1 `pio run -e crowpanel_21_round` builds clean.
 - [x] 5.2 `pio run -e ref_rect_stub` builds clean.
 - [x] 5.3 `openspec validate --all --strict` is clean.
+- [x] 5.6 `python3 tools/test_fleet_update.py` passes — covers version-marker extraction, target-version resolution (marker over sidecar, sidecar fallback), controller identity match, verified-completion polling (success + timeout), and per-device update orchestration (accept, wrong-password reject, timeout abort) against a mock controller.
 - [x] 5.4 Hardware check: verified on a real controller (192.168.5.25) after USB flash — `GET /status` returns the documented JSON with `device: "opensonos-controller"` and `firmware_version: "292062d"` matching the flashed commit exactly (proves the version-injection chain end-to-end). Handler reads only cached state by construction (no SSDP/SOAP calls in the code path).
 - [x] 5.5 End-to-end verified on hardware: `tools/fleet_update.py` updated the real controller (192.168.5.25) from `292062d` → `5df141f` over `POST /update` — discovery listing, multipart upload (HTTP 200 from the real ESP32 WebServer parser), tolerate-reboot, and verified return on the new version all worked (exit 0); an independent `curl /status` confirmed `5df141f`. Re-run correctly reported "already up to date" (skip path). Auto-detect also surfaced and fixed a real /22-vs-/24 subnet bug. The ≥15 s settle floor (multi-device only) and forced-timeout abort remain covered by the mock integration test (single physical device on hand).

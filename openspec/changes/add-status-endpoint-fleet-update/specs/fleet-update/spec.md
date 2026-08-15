@@ -57,18 +57,33 @@ report that none were found and exit without attempting any update.
 
 ### Requirement: Tool Confirms Before Sending Updates
 
-The tool SHALL require explicit operator confirmation after listing the
-controllers and before sending firmware to the first device. If the operator
-declines, the tool SHALL exit without updating any device.
+The tool SHALL obtain explicit operator confirmation after listing the
+controllers and before sending firmware to the first device. Confirmation MAY be
+given interactively at a yes/no prompt, or, for unattended runs, non-interactively
+by passing an explicit confirmation flag (e.g. `--yes`). Absent confirmation — the
+operator declines at the prompt, or the run is non-interactive and the flag was
+not given — the tool SHALL exit without updating any device. The tool SHALL NOT
+proceed to flash on a bare invocation with no confirmation.
 
-#### Scenario: Operator confirms the update
+#### Scenario: Operator confirms the update interactively
 
-- **WHEN** the operator confirms after reviewing the list
+- **WHEN** the operator confirms at the yes/no prompt after reviewing the list
 - **THEN** the tool proceeds to update the controllers
 
 #### Scenario: Operator declines the update
 
 - **WHEN** the operator declines at the confirmation prompt
+- **THEN** the tool exits without sending firmware to any device
+
+#### Scenario: Confirmation given non-interactively
+
+- **WHEN** the operator passes the explicit confirmation flag (e.g. `--yes`)
+- **THEN** the tool proceeds to update the controllers without prompting
+
+#### Scenario: No confirmation available
+
+- **WHEN** the run is non-interactive (no prompt possible) and no confirmation
+  flag was given
 - **THEN** the tool exits without sending firmware to any device
 
 ### Requirement: Tool Authenticates OTA Uploads Without Exposing the Password

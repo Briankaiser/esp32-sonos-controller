@@ -16,6 +16,9 @@
 *.orig
 .DS_Store
 
+# Generated at build time by extra_scripts/fw_version.py
+src/services/fw_version_generated.h
+
 # Secrets — never committed
 secrets.h
 credentials.h

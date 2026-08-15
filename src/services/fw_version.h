@@ -1,8 +1,14 @@
 #pragma once
 
-// Firmware version string, injected at build time by extra_scripts/fw_version.py
-// as OPENSONOS_FW_VERSION (from `git describe --tags --always --dirty`). Falls
-// back to "unknown" when the macro is undefined so the value is never empty.
+// Firmware version string. extra_scripts/fw_version.py generates
+// fw_version_generated.h at build time (from `git describe --tags --always
+// --dirty`) defining OPENSONOS_FW_VERSION. If that generated header is absent
+// (e.g. a build that skips the script), fall back to "unknown" so the reported
+// version is never empty.
+#if __has_include("fw_version_generated.h")
+#include "fw_version_generated.h"
+#endif
+
 #ifndef OPENSONOS_FW_VERSION
 #define OPENSONOS_FW_VERSION "unknown"
 #endif

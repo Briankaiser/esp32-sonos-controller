@@ -40,13 +40,21 @@ same shape: a `status::register_handler(WebServer&)` module.
 ### Version injection: `git describe` at build time via an `extra_scripts` helper
 
 A small PlatformIO `extra_scripts` Python helper runs `git describe --tags
---always --dirty` at build time and appends `-DOPENSONOS_FW_VERSION='"<value>"'`
-to the environment's build flags. Firmware exposes it as
+--always --dirty` at build time and generates
+`src/services/fw_version_generated.h` defining `OPENSONOS_FW_VERSION`, which
+`src/services/fw_version.h` includes. Firmware exposes it as
 `const char* fw::version()` returning the macro, or a compile-time fallback
-(e.g. `"unknown"`) when the macro is undefined so a tarball build without git
-still yields a non-empty string. Both envs (`crowpanel_21_round`,
-`ref_rect_stub`) get the flag; the existing `exclude_arm_asm.py` shows the
-`extra_scripts` pattern already in use.
+(`"unknown"`) via `#ifndef` when the generated header is absent (e.g. a build
+that skips the script) so a tarball build without git still yields a non-empty
+string. A generated header is used rather than a `-DOPENSONOS_FW_VERSION` build
+flag because appending `CPPDEFINES` from an extra script does **not** reliably
+reach the `src/` (projenv) compilation environment across PlatformIO/SCons
+versions — verified empirically: the flag never landed on the source compile
+line and the string was absent from the ELF. A header the firmware `#include`s
+always compiles in, and (written only when the value changes, content-hashed by
+SCons) re-triggers just the two TUs that use it. The generated header is
+git-ignored. Both envs (`crowpanel_21_round`, `ref_rect_stub`) run the helper;
+the existing `exclude_arm_asm.py` shows the `extra_scripts` pattern already in use.
 
 - *Alternative — hand-maintained version constant:* rejected; it drifts from
   reality the moment someone forgets to bump it, defeating "skip already-updated".

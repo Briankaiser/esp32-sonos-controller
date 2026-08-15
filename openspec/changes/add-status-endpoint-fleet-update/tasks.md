@@ -1,6 +1,6 @@
 ## 1. Firmware version injection
 
-- [x] 1.1 Add a PlatformIO `extra_scripts` helper (e.g. `extra_scripts/fw_version.py`) that runs `git describe --tags --always --dirty` at build time, appends `-DOPENSONOS_FW_VERSION='"<value>"'` to the env build flags, and writes the same value to a sidecar file (`.pio/build/<env>/fw_version.txt`) next to the built `.bin` so the updater can read the exact target version.
+- [x] 1.1 Add a PlatformIO `extra_scripts` helper (e.g. `extra_scripts/fw_version.py`) that runs `git describe --tags --always --dirty` at build time, generates `src/services/fw_version_generated.h` defining `OPENSONOS_FW_VERSION` (a generated header, not a `-D` flag — CPPDEFINES from an extra script does not reliably reach the src/ compile), and writes the same value to a sidecar file (`.pio/build/<env>/fw_version.txt`) next to the built `.bin` so the updater can read the exact target version. Generated header is git-ignored.
 - [x] 1.2 Wire the helper into both `crowpanel_21_round` and `ref_rect_stub` envs in `platformio.ini` (alongside the existing `exclude_arm_asm.py`).
 - [x] 1.3 Add a `fw::version()` accessor (small `src/services/fw_version.h` or similar) returning `OPENSONOS_FW_VERSION`, with a non-empty compile-time fallback (e.g. `"unknown"`) when the macro is undefined.
 - [x] 1.4 Log the firmware version to serial on boot, after WiFi connects, in `src/main.cpp`.

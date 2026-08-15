@@ -62,22 +62,68 @@ def probe_status(ip, timeout=SCAN_TIMEOUT_S):
     return data
 
 
-def local_subnets():
-    """Best-effort guess of the local /24(s) this host sits on."""
-    subnets = []
+MAX_AUTO_HOSTS = 4096  # don't auto-scan a range larger than this without --subnet
+
+
+def _local_ip():
+    """The source IP the OS would route from (no packets sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        # Doesn't send packets; just picks the interface the OS would route from.
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("192.0.2.1", 9))  # TEST-NET-1, unroutable
-            local_ip = s.getsockname()[0]
-        finally:
-            s.close()
-        net = ipaddress.ip_network(local_ip + "/24", strict=False)
-        subnets.append(net)
-    except OSError:
+        s.connect(("192.0.2.1", 9))  # TEST-NET-1, unroutable
+        return s.getsockname()[0]
+    finally:
+        s.close()
+
+
+def _prefix_for_ip(local_ip):
+    """Best-effort netmask/prefix for local_ip from the OS. Returns an int prefix
+    length, or None if it can't be determined. Stdlib only (parses ifconfig / ip)."""
+    import re
+    import subprocess
+    # Linux: `ip -o -f inet addr show` -> "... inet 192.168.4.37/22 ..."
+    try:
+        out = subprocess.run(["ip", "-o", "-f", "inet", "addr", "show"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                m = re.search(r"inet %s/(\d+)" % re.escape(local_ip), line)
+                if m:
+                    return int(m.group(1))
+    except (OSError, subprocess.SubprocessError):
         pass
-    return subnets
+    # macOS/BSD: `ifconfig` -> "inet 192.168.4.37 netmask 0xfffffc00 ..."
+    try:
+        out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5)
+        if out.returncode == 0:
+            for line in out.stdout.splitlines():
+                m = re.search(r"inet %s .*netmask (0x[0-9a-fA-F]+)" % re.escape(local_ip), line)
+                if m:
+                    mask = int(m.group(1), 16)
+                    return bin(mask).count("1")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def local_subnets():
+    """Best-effort local subnet(s) this host sits on, using the interface's real
+    netmask (falling back to /24). Ranges larger than MAX_AUTO_HOSTS are narrowed
+    to a /24 with a note to pass --subnet, so auto-scan never balloons."""
+    try:
+        local_ip = _local_ip()
+    except OSError:
+        return []
+    prefix = _prefix_for_ip(local_ip)
+    if prefix is None:
+        prefix = 24  # couldn't read the mask; assume the common case
+    net = ipaddress.ip_network("%s/%d" % (local_ip, prefix), strict=False)
+    if net.num_addresses - 2 > MAX_AUTO_HOSTS:
+        narrowed = ipaddress.ip_network("%s/24" % local_ip, strict=False)
+        print("Note: local network %s is large (%d hosts); scanning %s only.\n"
+              "      Pass --subnet %s to scan the whole range."
+              % (net, net.num_addresses - 2, narrowed, net))
+        return [narrowed]
+    return [net]
 
 
 def scan(subnet, workers=64):

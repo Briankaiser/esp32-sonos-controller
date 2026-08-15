@@ -120,8 +120,12 @@ Determine the local `/24` (or accept `--subnet`/CIDR) and probe each host's
 
 ## Risks / Trade-offs
 
-- **Multiple subnets / VLANs** → the auto-detected `/24` may miss controllers on
-  another segment. Mitigation: `--subnet` override; document it.
+- **Multiple subnets / VLANs** → controllers on another segment are missed.
+  Mitigation: auto-detection reads the interface's real netmask (via `ifconfig`
+  / `ip`, stdlib subprocess) rather than assuming `/24` — verified on a real
+  `/22` network where the device sat outside the local `/24`. Ranges larger than
+  `MAX_AUTO_HOSTS` are narrowed to a `/24` with a note, and `--subnet` overrides
+  for anything else.
 - **`git describe` with no tags** → falls back to short SHA (`--always`), still
   unique per commit; `--dirty` flags uncommitted builds so a dev image is never
   mistaken for a clean one during verification.

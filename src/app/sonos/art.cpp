@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <esp_heap_caps.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -90,7 +91,7 @@ static inline bool time_before(uint32_t deadline) {
 // Reads one '\n'-terminated line, yielding delay(1) when no data is available.
 // readStringUntil routes through Stream::timedRead which busy-spins without
 // yielding to FreeRTOS — this replacement prevents the IDLE watchdog from firing.
-static String read_line(WiFiClient& client, uint32_t deadline) {
+static String read_line(Client& client, uint32_t deadline) {
     String line;
     while (time_before(deadline)) {
         if (client.available()) {
@@ -116,20 +117,33 @@ static constexpr uint32_t kChunkedStallMs = 8000;
 static uint32_t s_last_fetch_ms       = 0;   // wall time spent in the last fetch
 static long     s_last_content_length = -1;  // Content-Length header, -1 if absent
 static bool     s_last_fetch_stalled  = false;
+static int      s_last_http_status    = -1;   // HTTP status code, -1 if unparsed
+static String   s_last_host;                   // host:port actually contacted
 
 static size_t fetch_jpeg(const String& url,
                          const String& speaker_ip,
                          uint16_t      speaker_port) {
     s_last_content_length = -1;
     s_last_fetch_stalled  = false;
+    s_last_http_status    = -1;
     uint32_t t_start      = millis();
 
     String decoded_url = url;
     decoded_url.replace("&amp;", "&");
 
-    String path;
+    // Resolve the target. A relative path is served by the Sonos speaker over
+    // plain HTTP (the /getaa proxy). An absolute URL — e.g. Spotify hands back
+    // https://i.scdn.co/image/... directly — must go to ITS OWN host, over TLS
+    // when https; the speaker does not host that path. (This is why Spotify art
+    // 404'd: the path was requested from the speaker instead of the CDN.)
+    String   host;
+    uint16_t port;
+    String   path;
+    bool     use_tls = false;
     if (decoded_url.startsWith("/")) {
-        path = decoded_url;
+        host    = speaker_ip;
+        port    = speaker_port;
+        path    = decoded_url;
     } else {
         int proto_end = decoded_url.indexOf("://");
         if (proto_end < 0) {
@@ -137,32 +151,74 @@ static size_t fetch_jpeg(const String& url,
             s_last_fetch_ms = millis() - t_start;
             return 0;
         }
+        use_tls    = decoded_url.substring(0, proto_end).equalsIgnoreCase("https");
         String rest = decoded_url.substring(proto_end + 3);
-        int slash = rest.indexOf('/');
-        path = (slash >= 0) ? rest.substring(slash) : "/";
+        int slash   = rest.indexOf('/');
+        String authority = (slash >= 0) ? rest.substring(0, slash) : rest;
+        path             = (slash >= 0) ? rest.substring(slash)    : "/";
+        int colon = authority.indexOf(':');
+        if (colon >= 0) {
+            host = authority.substring(0, colon);
+            port = (uint16_t)authority.substring(colon + 1).toInt();
+        } else {
+            host = authority;
+            port = use_tls ? 443 : 80;
+        }
     }
 
-    WiFiClient client;
-    client.setTimeout(8000);
-    if (!client.connect(speaker_ip.c_str(), speaker_port, 5000)) {
-        Serial.printf("[Art] connect failed %s:%u\n",
-                      speaker_ip.c_str(), (unsigned)speaker_port);
+    s_last_host = host + ":" + String(port) + (use_tls ? " (tls)" : "");
+
+    // Pick the transport. WiFiClientSecure carries the TLS stack (heavier); only
+    // engaged for https absolute URLs. setInsecure() skips cert validation, which
+    // is acceptable for public album-art images and avoids shipping a CA bundle.
+    WiFiClient       plain;
+    WiFiClientSecure secure;
+    Client*          client;
+    if (use_tls) {
+        secure.setInsecure();
+        client = &secure;
+    } else {
+        client = &plain;
+    }
+    client->setTimeout(8000);
+    if (!client->connect(host.c_str(), port)) {
+        Serial.printf("[Art] connect failed %s:%u%s\n",
+                      host.c_str(), (unsigned)port, use_tls ? " (tls)" : "");
         s_last_fetch_ms = millis() - t_start;
         return 0;
     }
-    client.printf("GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n\r\n",
-                  path.c_str(), speaker_ip.c_str(), (unsigned)speaker_port);
+    // Host header: omit the port for the scheme defaults so CDNs are happy.
+    String host_hdr = host;
+    if (!((use_tls && port == 443) || (!use_tls && port == 80)))
+        host_hdr += ":" + String(port);
+    client->printf("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+                   path.c_str(), host_hdr.c_str());
 
     // Sonos proxies Spotify/streaming art from cloud CDN, which can be slow
     // on cross-subnet WiFi paths (observed ~1-4 KB/s for a ~110 KB JPEG).
     // 60 s covers a 150 KB image at worst-case 2.5 KB/s; the stall detections
     // below bail out early when the connection actually drops mid-transfer.
     uint32_t deadline = millis() + 60000;
-    while (!client.available() && time_before(deadline)) delay(5);
-    read_line(client, deadline);  // status line (discard)
+    while (!client->available() && time_before(deadline)) delay(5);
+
+    // Status line, e.g. "HTTP/1.1 200 OK". Sonos answers 404 (with a short
+    // error-page body) for missing/expired art; feeding that body to JPEGDEC is
+    // exactly the "openRAM failed (~200 bytes)" symptom. Parse the code and bail
+    // on anything that isn't 2xx so we never try to decode an error page.
+    {
+        String status = read_line(*client, deadline);
+        int sp = status.indexOf(' ');
+        if (sp >= 0) s_last_http_status = (int)strtol(status.c_str() + sp + 1, nullptr, 10);
+        if (s_last_http_status < 200 || s_last_http_status >= 300) {
+            client->stop();
+            s_last_fetch_ms = millis() - t_start;
+            return 0;
+        }
+    }
+
     bool is_chunked = false;
-    while (client.connected() && time_before(deadline)) {
-        String line = read_line(client, deadline);
+    while (client->connected() && time_before(deadline)) {
+        String line = read_line(*client, deadline);
         if (line.isEmpty()) break;
         String lower = line;
         lower.toLowerCase();
@@ -176,8 +232,8 @@ static size_t fetch_jpeg(const String& url,
     size_t   fetched       = 0;
     uint32_t last_progress = millis();
     if (is_chunked) {
-        while ((client.connected() || client.available()) && time_before(deadline)) {
-            String size_line = read_line(client, deadline);
+        while ((client->connected() || client->available()) && time_before(deadline)) {
+            String size_line = read_line(*client, deadline);
             if (size_line.isEmpty()) {
                 // Empty size line: either still waiting or the connection stalled.
                 if (millis() - last_progress > kChunkedStallMs) {
@@ -190,20 +246,20 @@ static size_t fetch_jpeg(const String& url,
             // Read chunk body in bursts: readBytes of currently-available data,
             // then yield — prevents starving IDLE when the data stream is continuous.
             for (uint32_t i = 0; i < chunk_size && time_before(deadline); ) {
-                int av = client.available();
+                int av = client->available();
                 if (av > 0 && fetched < art::kArtJpegBufBytes) {
                     size_t to_read = (size_t)av;
                     if (to_read > chunk_size - i)             to_read = chunk_size - i;
                     if (to_read > art::kArtJpegBufBytes - fetched)
                         to_read = art::kArtJpegBufBytes - fetched;
-                    size_t got = (size_t)client.readBytes(
+                    size_t got = (size_t)client->readBytes(
                         (char*)(s_jpeg_buf + fetched), to_read);
                     fetched += got;
                     i      += (uint32_t)got;
                     if (got > 0) last_progress = millis();
                 } else if (fetched >= art::kArtJpegBufBytes) {
                     break;
-                } else if (client.connected()) {
+                } else if (client->connected()) {
                     if (millis() - last_progress > kChunkedStallMs) {
                         s_last_fetch_stalled = true; goto done_chunked;
                     }
@@ -214,18 +270,18 @@ static size_t fetch_jpeg(const String& url,
                 }
                 delay(1);  // yield after every burst
             }
-            read_line(client, deadline);  // trailing CRLF after chunk data
+            read_line(*client, deadline);  // trailing CRLF after chunk data
             if (fetched >= art::kArtJpegBufBytes) break;
         }
         done_chunked:;
     } else {
-        while ((client.connected() || client.available()) && time_before(deadline)) {
-            int av = client.available();
+        while ((client->connected() || client->available()) && time_before(deadline)) {
+            int av = client->available();
             if (av > 0 && fetched < art::kArtJpegBufBytes) {
                 size_t to_read = (size_t)av;
                 if (to_read > art::kArtJpegBufBytes - fetched)
                     to_read = art::kArtJpegBufBytes - fetched;
-                size_t got = (size_t)client.readBytes(
+                size_t got = (size_t)client->readBytes(
                     (char*)(s_jpeg_buf + fetched), to_read);
                 fetched += got;
                 if (got > 0) last_progress = millis();
@@ -238,7 +294,7 @@ static size_t fetch_jpeg(const String& url,
             delay(1);
         }
     }
-    client.stop();
+    client->stop();
     s_last_fetch_ms = millis() - t_start;
     return fetched;
 }
@@ -252,13 +308,26 @@ static void fetch_and_decode(const String& url,
 
     size_t fetched = fetch_jpeg(url, speaker_ip, speaker_port);
     if (fetched == 0) {
-        Serial.printf("[Art] empty response (%lums%s)\n",
-                      (unsigned long)s_last_fetch_ms,
-                      s_last_fetch_stalled ? ", stalled" : "");
+        if (s_last_http_status >= 0 && (s_last_http_status < 200 || s_last_http_status >= 300))
+            Serial.printf("[Art] HTTP %d from %s — no art (%lums)\n",
+                          s_last_http_status, s_last_host.c_str(), (unsigned long)s_last_fetch_ms);
+        else
+            Serial.printf("[Art] empty response from %s (%lums%s)\n",
+                          s_last_host.c_str(), (unsigned long)s_last_fetch_ms,
+                          s_last_fetch_stalled ? ", stalled" : "");
         return;
     }
     if (fetched >= art::kArtJpegBufBytes) {
         Serial.printf("[Art] JPEG too large (>= %u bytes)\n", (unsigned)art::kArtJpegBufBytes);
+        return;
+    }
+
+    // A 2xx body that isn't actually a JPEG (rare text placeholder, or a partial
+    // that lost its header) has no Start-Of-Image marker. Skip it cleanly rather
+    // than letting openRAM fail obscurely.
+    if (fetched < 2 || s_jpeg_buf[0] != 0xFF || s_jpeg_buf[1] != 0xD8) {
+        Serial.printf("[Art] not a JPEG (%u bytes, starts 0x%02X 0x%02X)\n",
+                      (unsigned)fetched, s_jpeg_buf[0], s_jpeg_buf[1]);
         return;
     }
 
@@ -347,20 +416,23 @@ static void art_task_body(void* /*arg*/) {
 
         const SpeakerInfo& hr = st.speakers[st.home_room_idx];
 
-        // Any Sonos speaker can proxy /getaa for the currently playing track.
-        // Prefer a non-home-room visible speaker: the home room might be a
-        // battery-powered portable (e.g. Roam) on a cross-subnet WiFi path
-        // that proxies streaming art slowly. A plugged-in speaker on the same
-        // subnet as the ESP32 can be orders of magnitude faster.
-        const SpeakerInfo* alt = nullptr;
-        for (const SpeakerInfo& s : st.speakers) {
-            if (s.uuid != hr.uuid && !s.invisible) { alt = &s; break; }
+        // Sonos serves the /getaa art proxy ONLY from the speaker actually
+        // playing the track — the group coordinator. A grouped member (or any
+        // unrelated room) returns 404, which is why album art disappears once
+        // the home room is grouped under another coordinator. So fetch from the
+        // home room's coordinator, not an arbitrary speaker.
+        //
+        // group_coordinator_uuid: empty or == home room  => the home room is
+        // itself the coordinator (standalone, or coordinator of its group), so
+        // fetch from it. Otherwise it names the coordinator speaker to use.
+        const SpeakerInfo* src = &hr;
+        if (!pb.group_coordinator_uuid.isEmpty() &&
+            pb.group_coordinator_uuid != hr.uuid) {
+            for (const SpeakerInfo& s : st.speakers) {
+                if (s.uuid == pb.group_coordinator_uuid) { src = &s; break; }
+            }
         }
-        if (alt) {
-            fetch_and_decode(pb.album_art_uri, alt->ip, alt->port);
-            if (art::snapshot().uri == pb.album_art_uri) continue;
-        }
-        fetch_and_decode(pb.album_art_uri, hr.ip, hr.port);
+        fetch_and_decode(pb.album_art_uri, src->ip, src->port);
     }
 }
 

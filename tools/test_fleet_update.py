@@ -148,6 +148,25 @@ class FleetUpdateTests(unittest.TestCase):
         self.ctrl.device = "some-other-device"
         self.assertIsNone(fu.probe_status("127.0.0.1", timeout=2))
 
+    def test_discover_unions_across_passes(self):
+        # A controller seen in only one pass (briefly unresponsive in the other)
+        # must still be discovered — the union is what makes "update all" reliable.
+        calls = {"n": 0}
+        A = {"ip": "10.0.0.1", "home_room_name": "A", "firmware_version": "x"}
+        B = {"ip": "10.0.0.2", "home_room_name": "B", "firmware_version": "y"}
+
+        def fake_scan(subnet, workers=64):
+            calls["n"] += 1
+            return [A] if calls["n"] == 1 else [B]  # pass 1 sees only A, pass 2 only B
+
+        orig = fu.scan
+        fu.scan = fake_scan
+        try:
+            result = fu.discover(["10.0.0.0/24"], passes=2)
+        finally:
+            fu.scan = orig
+        self.assertEqual({c["ip"] for c in result}, {"10.0.0.1", "10.0.0.2"})
+
     # ── verified completion ─────────────────────────────────────────────
 
     def test_wait_for_version_success_and_timeout(self):

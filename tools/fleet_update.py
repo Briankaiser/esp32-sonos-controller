@@ -139,6 +139,22 @@ def scan(subnet, workers=64):
     return found
 
 
+def discover(subnets, passes=2):
+    """Scan all subnets `passes` times and union the results by IP, keeping the
+    freshest record per controller. A single scan is a point-in-time snapshot: a
+    controller that is briefly unresponsive (rebooting, busy, mid-DHCP) during
+    that one pass would be silently missed — fatal for a tool whose job is to
+    update *all* controllers. Unioning across passes closes that gap."""
+    by_ip = {}
+    for p in range(max(1, passes)):
+        if p:
+            print("Re-scanning to catch any controller missed on the previous pass...")
+        for sn in subnets:
+            for c in scan(sn):
+                by_ip[c["ip"]] = c  # last seen wins (freshest firmware_version)
+    return list(by_ip.values())
+
+
 # ── Presentation ─────────────────────────────────────────────────────────────
 
 def sort_key(ctrl):
@@ -288,6 +304,9 @@ def parse_args(argv):
     p.add_argument("--timeout", type=int, default=DEFAULT_VERIFY_TIMEOUT_S,
                    help="seconds to wait for a device to return on the new version "
                         "(default: %d)" % DEFAULT_VERIFY_TIMEOUT_S)
+    p.add_argument("--passes", type=int, default=2,
+                   help="number of discovery scan passes to union (default 2); more "
+                        "passes catch controllers that are briefly unresponsive")
     p.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     return p.parse_args(argv)
 
@@ -317,9 +336,7 @@ def main(argv=None):
             print("error: could not auto-detect a local subnet; pass --subnet.", file=sys.stderr)
             return 2
 
-    controllers = []
-    for sn in subnets:
-        controllers.extend(scan(sn))
+    controllers = discover(subnets, args.passes)
     if not controllers:
         print("No OpenSonos controllers found.")
         return 0

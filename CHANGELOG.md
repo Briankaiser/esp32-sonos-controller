@@ -35,8 +35,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
   OTA. It tolerates the reboot drop-out, waits for each device to come back on
   the new firmware version before continuing (with a 15-second settle floor),
   and aborts the run if a device fails to return rather than rolling a possibly
-  bad build across the whole fleet. See
-  `openspec/changes/archive/2026-08-15-add-status-endpoint-fleet-update/`.
+  bad build across the whole fleet. Discovery scans the network more than once
+  and unions the results, so a controller that is briefly unresponsive during
+  one pass is not silently skipped. See
+  `openspec/changes/archive/2026-08-15-add-status-endpoint-fleet-update/` and
+  `openspec/changes/archive/2026-08-15-harden-fleet-discovery/`.
 - Connectivity problems now show a clear, recoverable status screen instead of
   hanging on "Connecting…" forever. Three faults are distinguished from local
   signals: **No WiFi** (with a confirm-guarded "Re-run WiFi Setup" that factory-

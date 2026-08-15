@@ -89,6 +89,16 @@ Per device, the tool runs this state machine:
 4. **Abort.** On verification timeout, stop the whole run, report the failed
    device and the count already updated, exit non-zero.
 
+**Self-contained distribution:** the version is also embedded in the app image
+behind a greppable `OPENSONOS_FW_VERSION:` sentinel (`fw_version.cpp`), so a
+distributed `firmware.bin` carries its own version — `fleet_update.py` reads the
+target straight from the `.bin` (`version_from_bin`), falling back to the sidecar.
+The string sits in `.rodata`, so the build-time SHA-256 already covers it; this
+avoids patching the standard ESP32 app-descriptor slot (offset 0x30), whose
+version field is fixed by the prebuilt Arduino core and can't be changed without
+recomputing the appended image hash. `fw::version()` returns the value part of
+that same embedded string, so runtime and on-disk version share one source.
+
 The **target version** must equal, character-for-character, the string
 `/status` reports (`git describe --tags --always --dirty`, e.g.
 `v1.2.3-4-gabcdef-dirty`). Requiring the operator to *type* that is a footgun:

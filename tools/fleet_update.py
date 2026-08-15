@@ -13,8 +13,8 @@ Discovery marker: a host is treated as a controller only if GET /status returns
 JSON whose "device" field equals "opensonos-controller".
 
 Usage:
-  # target version defaults to the sidecar written by the build
-  # (.pio/build/<env>/fw_version.txt); pass --version for a hand-built image.
+  # target version is read from a marker embedded in the .bin (self-contained);
+  # falls back to the fw_version.txt sidecar beside it, or pass --version.
   python3 tools/fleet_update.py firmware.bin
   python3 tools/fleet_update.py firmware.bin --subnet 192.168.1.0/24
   python3 tools/fleet_update.py firmware.bin --version v1.2.3-4-gabcdef --timeout 180
@@ -238,8 +238,34 @@ def update_one(ctrl, firmware, target_version, password, verify_timeout):
 
 # ── Target version ───────────────────────────────────────────────────────────
 
+FW_MARKER = b"OPENSONOS_FW_VERSION:"  # sentinel the firmware embeds in .rodata
+
+
+def version_from_bin(firmware_path):
+    """Read the version embedded in the image behind the greppable marker, so a
+    firmware.bin is self-describing (no companion file needed)."""
+    try:
+        with open(firmware_path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    i = data.find(FW_MARKER)
+    if i < 0:
+        return None
+    start = i + len(FW_MARKER)
+    end = data.find(b"\x00", start)
+    if end < 0:
+        return None
+    v = data[start:end].decode("ascii", "replace").strip()
+    return v or None
+
+
 def default_target_version(firmware_path):
-    """Read the sidecar fw_version.txt the build wrote next to the .bin."""
+    """Target version: prefer the marker embedded in the .bin (self-contained),
+    then fall back to the fw_version.txt sidecar the build writes beside it."""
+    v = version_from_bin(firmware_path)
+    if v:
+        return v
     # firmware is typically .pio/build/<env>/firmware.bin; sidecar sits beside it.
     sidecar = os.path.join(os.path.dirname(os.path.abspath(firmware_path)), "fw_version.txt")
     if os.path.isfile(sidecar):
@@ -257,7 +283,8 @@ def parse_args(argv):
     p.add_argument("firmware", help="path to the firmware .bin to roll out")
     p.add_argument("--subnet", help="subnet/CIDR to scan (default: auto-detect local /24)")
     p.add_argument("--version", help="target firmware version to verify after reboot "
-                                     "(default: read from fw_version.txt beside the .bin)")
+                                     "(default: read from the marker embedded in the .bin, "
+                                     "else the fw_version.txt sidecar beside it)")
     p.add_argument("--timeout", type=int, default=DEFAULT_VERIFY_TIMEOUT_S,
                    help="seconds to wait for a device to return on the new version "
                         "(default: %d)" % DEFAULT_VERIFY_TIMEOUT_S)

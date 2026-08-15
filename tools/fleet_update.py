@@ -304,6 +304,9 @@ def parse_args(argv):
     p.add_argument("--timeout", type=int, default=DEFAULT_VERIFY_TIMEOUT_S,
                    help="seconds to wait for a device to return on the new version "
                         "(default: %d)" % DEFAULT_VERIFY_TIMEOUT_S)
+    p.add_argument("--dry-run", action="store_true",
+                   help="scan and list which controllers would be updated, then exit "
+                        "without sending any firmware")
     p.add_argument("--passes", type=int, default=2,
                    help="number of discovery scan passes to union (default 2); more "
                         "passes catch controllers that are briefly unresponsive")
@@ -351,6 +354,15 @@ def main(argv=None):
         print("  already up to date: %s (%s)" % (c.get("home_room_name") or "(unnamed)", c["ip"]))
     if not pending:
         print("\nAll discovered controllers are already on %s. Nothing to do." % target_version)
+        return 0
+
+    if args.dry_run:
+        print("\nWould update %d controller(s) to %s:" % (len(pending), target_version))
+        for c in pending:
+            print("  %s (%s): %s -> %s"
+                  % (c.get("home_room_name") or "(unnamed)", c["ip"],
+                     c.get("firmware_version") or "?", target_version))
+        print("Dry run — no firmware sent.")
         return 0
 
     # Confirmation gate.

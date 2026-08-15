@@ -34,5 +34,5 @@
 - [x] 5.1 `pio run -e crowpanel_21_round` builds clean.
 - [x] 5.2 `pio run -e ref_rect_stub` builds clean.
 - [x] 5.3 `openspec validate --all --strict` is clean.
-- [ ] 5.4 Hardware check (requires a physical controller — not available in this environment): on a real controller, `curl http://<ip>/status` returns the documented JSON with a non-empty `firmware_version` and the correct `device` marker; confirm the handler triggers no discovery/SOAP traffic.
+- [x] 5.4 Hardware check: verified on a real controller (192.168.5.25) after USB flash — `GET /status` returns the documented JSON with `device: "opensonos-controller"` and `firmware_version: "292062d"` matching the flashed commit exactly (proves the version-injection chain end-to-end). Handler reads only cached state by construction (no SSDP/SOAP calls in the code path).
 - [ ] 5.5 End-to-end (requires a physical controller — not available in this environment): run `tools/fleet_update.py` against at least one controller — verify discovery listing, confirmation gate, verified reboot on the new version, the ≥15 s settle floor, and that a forced verification timeout aborts the run non-zero. NOTE: the tool's discovery/marker-match, version-verify polling, sidecar version default, and timeout paths were validated against a local mock `/status` server.

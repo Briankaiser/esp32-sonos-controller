@@ -112,6 +112,13 @@ Debug loop:
 - `python3 scripts/mock_sonos.py` — mock SOAP server. Replays canned Sonos XML so
   playback logic is testable without real speakers. Query `GET /log` to assert on
   the command sequence; `POST /reset` to clear between tests.
+- `curl http://<device-ip>/status` — cached device status as JSON (identity
+  marker, firmware version, network, home room, GENA-vs-polling). Nothing is
+  queried on hit; it is a read of already-held state.
+- `python3 tools/fleet_update.py <firmware.bin>` — discover controllers on the
+  LAN via `/status` and update them sequentially over OTA with per-device
+  verified reboot and abort-on-failure. OTA password from `OPENSONOS_OTA_PASSWORD`
+  (prompted if unset); target version defaults to `fw_version.txt` beside the `.bin`.
 
 Performance gate: **at least 55 fps sustained.** 60 is the aspiration. The binding
 constraint is PSRAM and LCD DMA bandwidth, not code structure — do not attempt to

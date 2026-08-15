@@ -46,6 +46,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Fixed
 
+- Album art now appears for streaming services that provide an absolute image
+  URL (notably Spotify) and when the home room is grouped: art is fetched from
+  the group coordinator for relative paths and directly from the URL's own host
+  (over HTTPS) for absolute URLs, and non-image responses are no longer decoded
+  as images. See `openspec/changes/archive/2026-08-15-fix-album-art-fetch/`.
 - Title, artist, and album could go blank (while album art stayed frozen on
   the last successful track) whenever the home room was grouped with another
   speaker as a non-coordinator member. The internal record of which speaker

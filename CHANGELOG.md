@@ -22,6 +22,21 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- A new `GET /status` HTTP endpoint reports basic device state as JSON — an
+  `"opensonos-controller"` identity marker, the running firmware version, WiFi
+  connection status / IP / SSID, discovered speaker count, the home room name
+  and UUID, and whether Sonos state is currently driven by GENA eventing or by
+  polling. Every field is served from already-cached state; the request
+  triggers no discovery or Sonos queries. The firmware version is also logged
+  to serial on boot and is injected at build time from `git describe`.
+- A host-side fleet updater, `tools/fleet_update.py` (Python standard library
+  only), discovers every controller on the local network via `/status`, lists
+  them by room then IP, and — after confirmation — updates each one in turn over
+  OTA. It tolerates the reboot drop-out, waits for each device to come back on
+  the new firmware version before continuing (with a 15-second settle floor),
+  and aborts the run if a device fails to return rather than rolling a possibly
+  bad build across the whole fleet. See
+  `openspec/changes/archive/2026-08-15-add-status-endpoint-fleet-update/`.
 - Connectivity problems now show a clear, recoverable status screen instead of
   hanging on "Connecting…" forever. Three faults are distinguished from local
   signals: **No WiFi** (with a confirm-guarded "Re-run WiFi Setup" that factory-

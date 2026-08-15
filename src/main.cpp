@@ -15,6 +15,8 @@
 #include "services/screenshot.h"
 #include "services/ota.h"
 #include "services/rooms.h"
+#include "services/status.h"
+#include "services/fw_version.h"
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
 #include "app/sonos/soap.h"
@@ -469,6 +471,7 @@ void setup() {
         // doesn't cover.
         WiFi.setAutoReconnect(true);
         Serial.printf("[WiFi] connected, IP: %s\n", WiFi.localIP().toString().c_str());
+        Serial.printf("[boot] firmware version: %s\n", fw::version());
     } else {
         Serial.println("[WiFi] connection failed — web services unavailable");
     }
@@ -479,6 +482,7 @@ void setup() {
         screenshot::register_handler(s_web_server);
         ota::register_handler(s_web_server);
         rooms::register_handlers(s_web_server);
+        status::register_handler(s_web_server);
         s_web_server.begin();
     }
 

@@ -16,5 +16,5 @@
 
 - [x] 3.1 `grep -rin "weather\|kLat\|kLon\|::lat(\|::lon(" src/` returns nothing (no weather references remain).
 - [x] 3.2 Both PlatformIO envs build (`crowpanel_21_round`, `ref_rect_stub`).
-- [ ] 3.3 **[hardware]** Fresh provisioning via the captive portal succeeds with only SSID / password / OTA fields; device connects and operates normally.
+- [x] 3.3 **[hardware]** Fresh provisioning via the captive portal succeeds with only SSID / password / OTA fields; device connects and operates normally. (Operator-confirmed on hardware.)
 - [x] 3.4 `openspec validate --all --strict` clean; CHANGELOG.md entry under `[Unreleased]`.

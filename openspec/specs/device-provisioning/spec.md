@@ -1,9 +1,7 @@
 ## Purpose
 
 Enables a factory-fresh device to self-configure over a captive portal without any credentials baked into firmware, and persists all device settings durably across reboots and power cycles.
-
 ## Requirements
-
 ### Requirement: Device Detects First Boot and Enters Portal Mode
 
 On first power-up (or after a factory reset), the device SHALL detect that no WiFi credentials are stored and enter provisioning mode automatically. It SHALL NOT attempt to connect to a WiFi network when no credentials are present.
@@ -50,7 +48,7 @@ While in portal mode, the device SHALL redirect any HTTP request to its own setu
 #### Scenario: HTTP root returns setup form
 
 - **WHEN** a browser on the `OpenSonos-Setup` AP issues an HTTP GET to any URL
-- **THEN** the device responds with a setup form containing fields for: WiFi SSID, WiFi password, weather latitude, weather longitude, and OTA password
+- **THEN** the device responds with a setup form containing fields for: WiFi SSID, WiFi password, and OTA password
 
 ### Requirement: Setup Form Persists Credentials and Reboots
 
@@ -59,7 +57,7 @@ On submission of the setup form, the device SHALL validate that required fields 
 #### Scenario: Valid form submission stores values and reboots
 
 - **WHEN** a user submits the setup form with all required fields filled
-- **THEN** the device stores WiFi SSID, WiFi password, weather latitude, weather longitude, and OTA password in NVS
+- **THEN** the device stores WiFi SSID, WiFi password, and OTA password in NVS
 - **AND** the device responds with a confirmation page stating that setup is complete
 - **AND** the device reboots within 3 seconds of confirming
 
@@ -142,3 +140,4 @@ Beyond first-boot detection, the device SHALL provide a way to re-enter provisio
 
 - **WHEN** a re-provisioning confirmation prompt is shown on a round display
 - **THEN** all of its text and controls fall within the inscribed safe-area circle
+

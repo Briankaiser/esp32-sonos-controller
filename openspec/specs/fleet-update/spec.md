@@ -20,6 +20,11 @@ so unreachable addresses do not stall the scan. Hosts that do not respond, that
 respond with non-JSON, or whose `device` marker does not match SHALL be silently
 ignored.
 
+To avoid silently missing a controller that is only briefly unresponsive (for
+example rebooting, busy, or mid-DHCP) during a single scan, the tool SHALL run
+the scan more than once by default and SHALL treat the union of all passes as the
+discovered set. The number of passes SHALL be configurable.
+
 #### Scenario: Controllers on the subnet are discovered
 
 - **WHEN** the tool scans a subnet on which one or more controllers are reachable
@@ -33,6 +38,13 @@ ignored.
   whose `device` field is absent or not `"opensonos-controller"`
 - **THEN** the tool does not treat that host as a controller
 - **AND** the scan continues without error
+
+#### Scenario: A briefly-unresponsive controller is still discovered
+
+- **WHEN** a controller responds to `/status` on at least one discovery pass but
+  not on another
+- **THEN** the tool includes it in the discovered set via the union of passes
+- **AND** it is not silently dropped from the fleet
 
 ### Requirement: Tool Lists Discovered Controllers Before Any Update
 

@@ -11,6 +11,16 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ## [Unreleased]
 
+### Added
+
+- The now-playing screen now shows time-aligned lyrics for the current track
+  when they are available: the title/artist/album band shrinks to make room for
+  a lyric region whose current line is highlighted and advances in real time
+  with playback. Lyrics are fetched from LRCLIB (no account, no API key) over
+  the network and are strictly best-effort — when there is no internet, no match
+  is found, or the match's timing can't be trusted, the screen shows no lyrics
+  and looks exactly as it did before, with no error shown.
+
 ### Removed
 
 - The captive-portal setup form no longer asks for a weather latitude and

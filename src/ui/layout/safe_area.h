@@ -60,5 +60,9 @@ static_assert(safe_area::slot_in_disc(slot(SLOT_LIST)),
     "SLOT_LIST escapes the inscribed disc — adjust archetype_round_compact.h");
 static_assert(safe_area::slot_in_disc(slot(SLOT_STATUS)),
     "SLOT_STATUS escapes the inscribed disc — adjust archetype_round_compact.h");
+static_assert(safe_area::slot_in_disc(slot(SLOT_TRACK_INFO_COMPACT)),
+    "SLOT_TRACK_INFO_COMPACT escapes the inscribed disc — adjust archetype_round_compact.h");
+static_assert(safe_area::slot_in_disc(slot(SLOT_LYRICS)),
+    "SLOT_LYRICS escapes the inscribed disc — adjust archetype_round_compact.h");
 
 #endif // OPENSONOS_SHAPE_ROUND

@@ -8,6 +8,7 @@
 #include "../theme/accent.h"
 #include "list_btn.h"
 #include "../../app/sonos/art.h"
+#include "../../app/lyrics/service.h"
 #include "../../app/sonos/state.h"
 #include "../../bsp/bsp.h"
 #include <lvgl.h>
@@ -32,7 +33,69 @@ static bool               s_loading_dismissed  = false;
 static lv_obj_t*          s_status_cont        = nullptr;
 static lv_obj_t*          s_favorites_overlay       = nullptr;
 static lv_obj_t*          s_art_cont                = nullptr;
+static lv_obj_t*          s_info                    = nullptr;  // full metadata band (lyrics absent)
 static sonos::PlaybackState s_last;
+
+// ── Lyrics widgets + state (UI task only) ─────────────────────────────────────
+// kLyricContext lines are shown on each side of the current line, so the region
+// holds 2*kLyricContext + 1 rows. Fixed at build (design aid: Round Lyrics Layout).
+static constexpr int      kLyricContext = 1;
+static constexpr int      kLyricRows    = 2 * kLyricContext + 1;
+static lv_obj_t*          s_meta_compact_cont  = nullptr;  // shrunken title/artist (lyrics present)
+static lv_obj_t*          s_title_compact_lbl  = nullptr;
+static lv_obj_t*          s_artist_compact_lbl = nullptr;
+static lv_obj_t*          s_lyrics_cont        = nullptr;
+static lv_obj_t*          s_lyric_row_lbl[kLyricRows] = {};
+static lyrics::LyricsDoc  s_lyrics_doc;
+static bool               s_lyrics_available = false;
+static bool               s_lyrics_synced    = false;
+static uint32_t           s_lyrics_version   = 0;
+
+// Interpolated playback position in seconds — the same estimate the progress
+// bar uses (position at last poll + wall time since, clamped to duration).
+static uint32_t interp_pos_s() {
+    if (s_last.transport_state != sonos::TransportState::Playing) return s_last.position_s;
+    if (s_last.duration_s == 0) return s_last.position_s;
+    uint32_t elapsed_s = (millis() - s_last.poll_timestamp_ms) / 1000u;
+    uint32_t pos = s_last.position_s + elapsed_s;
+    if (pos > s_last.duration_s) pos = s_last.duration_s;
+    return pos;
+}
+
+// Repaint the lyric rows for the given position. Synced: highlight the current
+// line, dim neighbours, and drive it from the interpolated position. Static
+// (untrustworthy timing / plain lyrics): show the opening lines with no moving
+// highlight. No-op when no usable lyrics are held. UI task only.
+static void update_lyric_highlight(uint32_t pos_s) {
+    if (!s_lyrics_available || !s_lyric_row_lbl[0]) return;
+
+    auto set_row = [](int r, const char* text, bool current) {
+        lv_label_set_text(s_lyric_row_lbl[r], text ? text : "");
+        lv_obj_set_style_text_color(s_lyric_row_lbl[r],
+            current ? accent::get() : lv_color_hex(0xCFC7B4), 0);
+        lv_obj_set_style_text_opa(s_lyric_row_lbl[r], current ? LV_OPA_COVER : LV_OPA_40, 0);
+    };
+
+    const int n = (int)s_lyrics_doc.lines.size();
+    if (s_lyrics_synced) {
+        int idx = lyrics::current_line_index(s_lyrics_doc, pos_s * 1000u);
+        for (int r = 0; r < kLyricRows; ++r) {
+            int line_i = (idx < 0) ? (r - kLyricContext - 1000)   // idx<0 → all rows empty except marker
+                                   : (idx - kLyricContext + r);
+            bool current = (r == kLyricContext) && (idx >= 0);
+            const char* txt = (line_i >= 0 && line_i < n) ? s_lyrics_doc.lines[line_i].text.c_str() : "";
+            set_row(r, txt, current);
+        }
+        if (idx < 0)  // intro before the first timestamped line
+            set_row(kLyricContext, "\xe2\x99\xaa", false);   // ♪
+    } else {
+        // Static: opening lines, no highlight, no movement.
+        for (int r = 0; r < kLyricRows; ++r) {
+            const char* txt = (r < n) ? s_lyrics_doc.lines[r].text.c_str() : "";
+            set_row(r, txt, false);
+        }
+    }
+}
 
 // ── Idle state ────────────────────────────────────────────────────────────────
 static uint32_t           s_idle_timer_start   = 0;
@@ -55,6 +118,10 @@ static void interp_tick(lv_timer_t* /*t*/) {
     if (pos > s_last.duration_s) pos = s_last.duration_s;
     int32_t pct = (int32_t)(pos * 100u / s_last.duration_s);
     lv_bar_set_value(s_progress_bar, pct, LV_ANIM_OFF);
+    // Advance the lyric highlight in lockstep with the progress bar (synced
+    // lyrics only; the helper no-ops otherwise). Frozen when not Playing because
+    // this timer returns above in that case.
+    update_lyric_highlight(pos);
 }
 
 // ── Helper: make a transparent, non-scrollable container for a slot ───────────
@@ -119,6 +186,7 @@ lv_obj_t* screens::now_playing_create() {
 
     // ── SLOT_TRACK_INFO — frosted overlay band with three stacked labels ──────
     lv_obj_t* info = slot_container(scr, SLOT_TRACK_INFO);
+    s_info = info;
     // Frosted dark backdrop so art is visible but text stays readable — same
     // "illuminated surface" language as the modal overlays: dark fill and an
     // accent hairline border that tracks the album-art accent. No blur glow
@@ -159,6 +227,73 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_text_align(s_album_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(s_album_lbl, LV_LABEL_LONG_DOT);
     lv_obj_set_size(s_album_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Body)));
+
+    // ── SLOT_TRACK_INFO_COMPACT — shrunken title/artist band (lyrics present) ─
+    // Same frosted vocabulary as the full band, raised and smaller so the lyric
+    // region has room. Hidden until lyrics for the current track are available.
+    s_meta_compact_cont = slot_container(scr, SLOT_TRACK_INFO_COMPACT);
+    lv_obj_set_style_bg_color(s_meta_compact_cont, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_meta_compact_cont, LV_OPA_50, 0);
+    lv_obj_set_style_radius(s_meta_compact_cont, 18, 0);
+    lv_obj_set_style_border_width(s_meta_compact_cont, 1, 0);
+    lv_obj_set_style_border_opa(s_meta_compact_cont, LV_OPA_50, 0);
+    accent::bind(s_meta_compact_cont, LV_STYLE_BORDER_COLOR);
+    lv_obj_set_layout(s_meta_compact_cont, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(s_meta_compact_cont, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_meta_compact_cont, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(s_meta_compact_cont, 6, 0);
+    lv_obj_set_style_pad_row(s_meta_compact_cont, 1, 0);
+
+    s_title_compact_lbl = lv_label_create(s_meta_compact_cont);
+    lv_label_set_text(s_title_compact_lbl, "\xe2\x80\x94");
+    lv_obj_set_style_text_font(s_title_compact_lbl, font(FontRole::Title), 0);
+    lv_obj_set_style_text_color(s_title_compact_lbl, lv_color_hex(0xEEEEEE), 0);
+    lv_obj_set_style_text_align(s_title_compact_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s_title_compact_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(s_title_compact_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Title)));
+
+    s_artist_compact_lbl = lv_label_create(s_meta_compact_cont);
+    lv_label_set_text(s_artist_compact_lbl, "");
+    lv_obj_set_style_text_font(s_artist_compact_lbl, font(FontRole::Body), 0);
+    lv_obj_set_style_text_color(s_artist_compact_lbl, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_text_align(s_artist_compact_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s_artist_compact_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(s_artist_compact_lbl, lv_pct(100), lv_font_get_line_height(font(FontRole::Body)));
+
+    lv_obj_add_flag(s_meta_compact_cont, LV_OBJ_FLAG_HIDDEN);
+
+    // ── SLOT_LYRICS — time-aligned lyric region (lyrics present) ─────────────
+    // kLyricRows stacked labels, centre row highlighted. Frosted band so text
+    // stays legible over full-bleed art. Hidden until lyrics are available.
+    s_lyrics_cont = slot_container(scr, SLOT_LYRICS);
+    lv_obj_set_style_bg_color(s_lyrics_cont, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_lyrics_cont, LV_OPA_40, 0);
+    lv_obj_set_style_radius(s_lyrics_cont, 18, 0);
+    lv_obj_set_style_border_width(s_lyrics_cont, 1, 0);
+    lv_obj_set_style_border_opa(s_lyrics_cont, LV_OPA_40, 0);
+    accent::bind(s_lyrics_cont, LV_STYLE_BORDER_COLOR);
+    lv_obj_set_layout(s_lyrics_cont, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(s_lyrics_cont, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_lyrics_cont, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(s_lyrics_cont, 6, 0);
+    lv_obj_set_style_pad_row(s_lyrics_cont, 3, 0);
+
+    for (int r = 0; r < kLyricRows; ++r) {
+        lv_obj_t* row = lv_label_create(s_lyrics_cont);
+        lv_label_set_text(row, "");
+        // Centre row (the current line) is larger; context rows use the body face.
+        bool center = (r == kLyricContext);
+        lv_obj_set_style_text_font(row, font(center ? FontRole::Title : FontRole::Body), 0);
+        lv_obj_set_style_text_color(row, lv_color_hex(0xCFC7B4), 0);
+        lv_obj_set_style_text_align(row, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(row, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(row, lv_pct(100),
+            lv_font_get_line_height(font(center ? FontRole::Title : FontRole::Body)));
+        s_lyric_row_lbl[r] = row;
+    }
+    lv_obj_add_flag(s_lyrics_cont, LV_OBJ_FLAG_HIDDEN);
 
     // ── SLOT_TRANSPORT — prev / play-pause / next as equal circular discs ────
     // Widen the row symmetrically about the display centre so the outer discs
@@ -580,6 +715,13 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
     lv_label_set_text(s_album_lbl,
         state.album.c_str());
 
+    // Keep the compact metadata band (shown when lyrics are present) in step.
+    if (s_title_compact_lbl)
+        lv_label_set_text(s_title_compact_lbl,
+            state.title.isEmpty() ? "\xe2\x80\x94" : state.title.c_str());
+    if (s_artist_compact_lbl)
+        lv_label_set_text(s_artist_compact_lbl, state.artist.c_str());
+
     lv_label_set_text(s_play_btn_lbl,
         state.transport_state == sonos::TransportState::Playing
             ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
@@ -625,5 +767,34 @@ void screens::now_playing_refresh_art() {
         lv_color_t adjusted = accent::adjusted_for_legibility(
             art.accent, lv_color_hex(0x1A1A1A));
         accent::set(adjusted, 400);
+    }
+}
+
+// ── now_playing_refresh_lyrics ───────────────────────────────────────────────
+// Reconciles the screen with the latest published lyrics snapshot. When usable
+// lyrics arrive, swaps the full metadata band for the compact band + lyric
+// region; when they are absent (the common case and every failure case), the
+// screen is exactly today's layout. Idempotent and cheap when the lyrics
+// version is unchanged, so it is safe to call every UI frame. UI task only.
+void screens::now_playing_refresh_lyrics() {
+    if (!s_lyrics_cont) return;  // screen not built yet
+
+    lyrics::LyricsState ls = lyrics::service::snapshot();
+    if (ls.version == s_lyrics_version) return;  // no structural change; interp drives the highlight
+
+    s_lyrics_version   = ls.version;
+    s_lyrics_doc       = ls.doc;
+    s_lyrics_available = ls.available;
+    s_lyrics_synced    = ls.synced;
+
+    if (ls.available) {
+        lv_obj_add_flag(s_info, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_meta_compact_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_lyrics_cont, LV_OBJ_FLAG_HIDDEN);
+        update_lyric_highlight(interp_pos_s());
+    } else {
+        lv_obj_remove_flag(s_info, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_meta_compact_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_lyrics_cont, LV_OBJ_FLAG_HIDDEN);
     }
 }

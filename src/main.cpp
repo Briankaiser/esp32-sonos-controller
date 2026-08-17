@@ -22,6 +22,7 @@
 #include "app/sonos/soap.h"
 #include "app/sonos/playback.h"
 #include "app/sonos/art.h"
+#include "app/lyrics/service.h"
 #include "app/sonos/favorites.h"
 #include "app/sonos/eventing.h"
 
@@ -262,6 +263,14 @@ static void sonos_task(void* /*arg*/) {
                     if (!pb.album_art_uri.isEmpty() && pb.album_art_uri != art_cur.uri) {
                         art::notify_new_uri();
                     }
+                    // Signal lyrics task when the track identity changes. The task
+                    // itself de-dupes and caches negatives, so a bare notify on any
+                    // identity mismatch is safe and cheap.
+                    lyrics::LyricsState lyr_cur = lyrics::service::snapshot();
+                    if (!pb.title.isEmpty() &&
+                        lyrics::service::track_key(pb) != lyr_cur.track_key) {
+                        lyrics::service::notify_new_track();
+                    }
                 }
                 // Use task notification instead of plain delay: enqueue_command()
                 // notifies us, so we wake immediately when a command arrives instead
@@ -414,6 +423,11 @@ static void ui_task(void* /*arg*/) {
         // cheap when the art version is unchanged.
         screens::now_playing_refresh_art();
 
+        // Apply freshly fetched lyrics independently of playback-state changes,
+        // same rationale as art: the lyrics task publishes asynchronously.
+        // Idempotent and cheap when the lyrics version is unchanged.
+        screens::now_playing_refresh_lyrics();
+
         // Diagnose connectivity faults and show/hide the fault status layer
         // (no WiFi / no Sonos / home room offline), with silent auto-recovery.
         // Cheap and internally throttled; safe to call every tick on the UI task.
@@ -495,8 +509,10 @@ void setup() {
     sonos::playback::init();
     sonos::eventing::init();   // NOTIFY body buffer (PSRAM)
     art::init();
+    lyrics::service::init();
     favorites::init();
     art::start_task();
+    lyrics::service::start_task();
 
     // Spawn tasks. cmd_task first (priority 4) so its notify handle is registered
     // before the UI task can enqueue any command.

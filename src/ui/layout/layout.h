@@ -18,6 +18,8 @@ enum SlotId : uint8_t {
     SLOT_VOLUME_ARC,    ///< Volume arc indicator (or on-screen slider if no encoder)
     SLOT_LIST,          ///< Full-screen scrollable list (Shortcuts, Room Groups)
     SLOT_STATUS,        ///< Small status line — room name, connectivity
+    SLOT_TRACK_INFO_COMPACT, ///< Shrunken title/artist band, shown only when lyrics are present
+    SLOT_LYRICS,        ///< Time-aligned lyric region, shown only when lyrics are present
     SLOT_COUNT,
 };
 

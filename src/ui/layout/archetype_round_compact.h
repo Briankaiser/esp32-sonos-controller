@@ -82,6 +82,27 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kW, 42),   // 201
         /*.h=*/ pct(kH, 12),   // 57
     },
+    // SLOT_TRACK_INFO_COMPACT — shrunken title/artist band, raised above the
+    // lyric region. Shown only when lyrics are present; SLOT_TRACK_INFO is used
+    // otherwise. Verified against design aid (Round Lyrics Layout).
+    // Worst corner (57,185): dx=183,dy=55, d²=33489+3025=36514 ✓
+    // Worst corner (420,124): dx=180,dy=116, d²=32400+13456=45856 ✓
+    {
+        /*.x=*/ pct(kW, 12),   // 57
+        /*.y=*/ pct(kH, 26),   // 124
+        /*.w=*/ pct(kW, 76),   // 364
+        /*.h=*/ pct(kH, 13),   // 62
+    },
+    // SLOT_LYRICS — time-aligned lyric region straddling the disc centre, where
+    // the chord width is widest. Shown only when lyrics are present.
+    // Worst corner (38,324): dx=202,dy=84, d²=40804+7056=47860 ✓
+    // Worst corner (440,324): dx=200,dy=84, d²=40000+7056=47056 ✓
+    {
+        /*.x=*/ pct(kW, 8),    // 38
+        /*.y=*/ pct(kH, 42),   // 201
+        /*.w=*/ pct(kW, 84),   // 403
+        /*.h=*/ pct(kH, 26),   // 124
+    },
 }};
 
 constexpr const LayoutSlot& slot(SlotId id) {

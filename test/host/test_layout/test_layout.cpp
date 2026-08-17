@@ -38,8 +38,8 @@ void test_pct_22_percent() {
 
 // ── Slot count ────────────────────────────────────────────────────────────────
 
-void test_slot_count_equals_seven() {
-    TEST_ASSERT_EQUAL_INT(7, static_cast<int>(SLOT_COUNT));
+void test_slot_count_equals_nine() {
+    TEST_ASSERT_EQUAL_INT(9, static_cast<int>(SLOT_COUNT));
 }
 
 void test_archetype_defines_all_slots() {
@@ -118,7 +118,7 @@ int main(int /*argc*/, char** /*argv*/) {
     RUN_TEST(test_pct_100_percent);
     RUN_TEST(test_pct_22_percent);
 
-    RUN_TEST(test_slot_count_equals_seven);
+    RUN_TEST(test_slot_count_equals_nine);
     RUN_TEST(test_archetype_defines_all_slots);
 
     RUN_TEST(test_album_art_slot_is_full_bleed);

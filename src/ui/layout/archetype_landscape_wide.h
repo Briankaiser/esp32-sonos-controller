@@ -60,6 +60,20 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kW, 42),
         /*.h=*/ pct(kH, 8),
     },
+    // SLOT_TRACK_INFO_COMPACT: right column, top — shrunken metadata (lyrics on)
+    {
+        /*.x=*/ pct(kW, 54),
+        /*.y=*/ pct(kH, 5),
+        /*.w=*/ pct(kW, 42),
+        /*.h=*/ pct(kH, 14),
+    },
+    // SLOT_LYRICS: right column, between metadata and transport (lyrics on)
+    {
+        /*.x=*/ pct(kW, 54),
+        /*.y=*/ pct(kH, 21),
+        /*.w=*/ pct(kW, 42),
+        /*.h=*/ pct(kH, 15),
+    },
 }};
 
 constexpr const LayoutSlot& slot(SlotId id) {

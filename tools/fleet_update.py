@@ -297,7 +297,8 @@ def default_target_version(firmware_path):
 def parse_args(argv):
     p = argparse.ArgumentParser(description="Update OpenSonos controllers over the LAN.")
     p.add_argument("firmware", help="path to the firmware .bin to roll out")
-    p.add_argument("--subnet", help="subnet/CIDR to scan (default: auto-detect local /24)")
+    p.add_argument("--subnet", help="subnet/CIDR to scan (default: auto-detect from the "
+                                    "interface netmask)")
     p.add_argument("--version", help="target firmware version to verify after reboot "
                                      "(default: read from the marker embedded in the .bin, "
                                      "else the fw_version.txt sidecar beside it)")

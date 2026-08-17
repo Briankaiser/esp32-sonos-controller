@@ -387,16 +387,17 @@ lv_obj_t* screens::now_playing_create() {
         // 97% of the 480×480 slot → 466×466 arc, visual radius ≈232px (near display edge)
         lv_obj_set_size(s_volume_arc, lv_pct(97), lv_pct(97));
         lv_obj_align(s_volume_arc, LV_ALIGN_CENTER, 0, 0);
-        // The two ends sit level with the track-info card's bottom edge on each
-        // side; the body sweeps up and over the top (12 o'clock), leaving the
-        // bottom open. Both offsets derive from the card slot + arc radius, so
-        // nothing is hardcoded and it stays correct if the layout changes. LVGL
-        // angles: 0°=3 o'clock, increasing clockwise; [180-end_off, 360+end_off]
-        // starts at the left end and sweeps through the top (270°).
+        // The two ends sit level with a fixed lower reference (≈70% of the
+        // display height) on each side; the body sweeps up and over the top
+        // (12 o'clock), leaving the bottom open. The metadata band is now
+        // anchored at the TOP in every state, so the arc's open bottom is
+        // pinned to this constant reference (its long-standing position) rather
+        // than tracking the metadata slot. LVGL angles: 0°=3 o'clock, increasing
+        // clockwise; [180-end_off, 360+end_off] starts at the left end and
+        // sweeps through the top (270°).
         {
             int32_t arc_r = (kDisplay.h * 97 / 100) / 2;
-            int32_t drop  = (slot(SLOT_TRACK_INFO).y + slot(SLOT_TRACK_INFO).h)
-                            - kDisplay.h / 2;  // card-bottom offset below centre
+            int32_t drop  = (kDisplay.h * 70 / 100) - kDisplay.h / 2;  // open-bottom offset below centre
             float ratio = (float)drop / (float)arc_r;
             if (ratio > 1.0f) ratio = 1.0f;
             int32_t end_off = (int32_t)(asinf(ratio) * 180.0f / 3.14159265f);

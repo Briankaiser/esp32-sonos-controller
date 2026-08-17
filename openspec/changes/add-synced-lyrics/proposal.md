@@ -19,7 +19,7 @@ This flips the settled "**No lyrics** in v1" scope boundary. That boundary was a
 - `synced-lyrics`: Fetching, parsing, caching, and time-aligning lyrics for the current track from LRCLIB over the LAN's internet uplink, off the interface task, with silent degradation on every failure or low-confidence-timing path.
 
 ### Modified Capabilities
-- `now-playing-screen`: The screen SHALL adapt its layout when timed lyrics are available — shrinking the title/artist/album metadata area to present a lyric region with the current line highlighted — and SHALL present exactly today's layout whenever lyrics are absent.
+- `now-playing-screen`: The track-metadata region is anchored at the top in every state. When timed lyrics are available the metadata shrinks in place — dropping the album line, keeping title and artist — and a lyric region with the current line highlighted appears below it; the metadata's top edge never moves. When lyrics are absent the region shows full title/artist/album at that same top anchor.
 - `runtime-architecture`: Lyric fetch and LRC parse SHALL run on a task other than the interface task and deliver results by message passing; lyric buffers SHALL be allocated from PSRAM; the sustained ≥55 fps budget SHALL hold while lyrics are active.
 
 ## Impact

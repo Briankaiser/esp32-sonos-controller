@@ -32,14 +32,18 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ kW,   // 480
         /*.h=*/ kH,   // 480
     },
-    // SLOT_TRACK_INFO — frosted overlay band, centre-lower, y≈48%, 22% tall.
-    // Larger slot for bigger fonts and frosted backdrop.
-    // Worst corner (432,336): dx=192,dy=96, d²=36864+9216=46080 ✓
+    // SLOT_TRACK_INFO — frosted overlay band, TOP-anchored (below the gear),
+    // y≈26%, 22% tall. The band lives at the top in every state; its top edge
+    // matches SLOT_TRACK_INFO_COMPACT so nothing shifts when lyrics appear —
+    // the band only shrinks (dropping the album line). Full title/artist/album
+    // shown when no lyrics are present.
+    // Worst corner (48,124): dx=192,dy=116, d²=36864+13456=50320 ✓
+    // Worst corner (431,124): dx=191,dy=116, d²=36481+13456=49937 ✓
     {
         /*.x=*/ pct(kW, 10),   // 48
-        /*.y=*/ pct(kH, 48),   // 230
+        /*.y=*/ pct(kH, 26),   // 124
         /*.w=*/ pct(kW, 80),   // 384
-        /*.h=*/ pct(kH, 22),   // 106
+        /*.h=*/ pct(kH, 22),   // 105
     },
     // SLOT_TRANSPORT — control row, y≈72%, 16% tall (unchanged).
     // Worst corner (392, 421): dx=152,dy=181, d²=55865 ✓

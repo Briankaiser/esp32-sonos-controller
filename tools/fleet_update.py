@@ -43,6 +43,7 @@ SCAN_TIMEOUT_S = 1.0        # per-host probe during subnet scan
 SETTLE_FLOOR_S = 15         # minimum wait between devices (operator constraint)
 VERIFY_POLL_INTERVAL_S = 3  # how often to poll /status while waiting for reboot
 DEFAULT_VERIFY_TIMEOUT_S = 120
+DISCOVER_PASS_DELAY_S = 15  # wait between discovery passes (covers ESP32 reboot ~10-20s)
 
 
 # ── Discovery ────────────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ def discover(subnets, passes=2):
     for p in range(max(1, passes)):
         if p:
             print("Re-scanning to catch any controller missed on the previous pass...")
+            time.sleep(DISCOVER_PASS_DELAY_S)
         for sn in subnets:
             for c in scan(sn):
                 by_ip[c["ip"]] = c  # last seen wins (freshest firmware_version)
@@ -364,7 +366,7 @@ def main(argv=None):
                   % (c.get("home_room_name") or "(unnamed)", c["ip"],
                      c.get("firmware_version") or "?", target_version))
         print("Dry run — no firmware sent.")
-        return 0
+        return 1  # pending updates exist; lets scripts detect "would do work"
 
     # Confirmation gate.
     if not args.yes:

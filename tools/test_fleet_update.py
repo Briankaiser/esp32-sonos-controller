@@ -96,6 +96,7 @@ class FleetUpdateTests(unittest.TestCase):
         fu.SETTLE_FLOOR_S = 0
         fu.VERIFY_POLL_INTERVAL_S = 0.02
         fu.SCAN_TIMEOUT_S = 1.0
+        fu.DISCOVER_PASS_DELAY_S = 0
 
     def setUp(self):
         self.ctrl = MockController().start()
@@ -166,6 +167,39 @@ class FleetUpdateTests(unittest.TestCase):
         finally:
             fu.scan = orig
         self.assertEqual({c["ip"] for c in result}, {"10.0.0.1", "10.0.0.2"})
+
+    # ── dry-run ─────────────────────────────────────────────────────────
+
+    def _make_firmware(self, version):
+        f = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        f.write(make_bin(version))
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_dry_run_pending_exits_1_no_upload(self):
+        binp = self._make_firmware("new")
+        ctrl_info = {"ip": "127.0.0.1", "home_room_name": "Kitchen", "firmware_version": "old"}
+        orig = fu.discover
+        fu.discover = lambda subnets, passes=2: [ctrl_info]
+        try:
+            rc = fu.main(["--subnet", "127.0.0.1/32", "--yes", "--dry-run", binp])
+        finally:
+            fu.discover = orig
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.ctrl.uploads, 0)
+
+    def test_dry_run_already_current_exits_0(self):
+        binp = self._make_firmware("new")
+        ctrl_info = {"ip": "127.0.0.1", "home_room_name": "Kitchen", "firmware_version": "new"}
+        orig = fu.discover
+        fu.discover = lambda subnets, passes=2: [ctrl_info]
+        try:
+            rc = fu.main(["--subnet", "127.0.0.1/32", "--yes", "--dry-run", binp])
+        finally:
+            fu.discover = orig
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.ctrl.uploads, 0)
 
     # ── verified completion ─────────────────────────────────────────────
 

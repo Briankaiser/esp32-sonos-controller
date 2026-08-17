@@ -1,14 +1,14 @@
 ## 1. Scope-boundary flip (do first — unblocks the rest without self-contradiction)
 
-- [ ] 1.1 Remove/rewrite the "No lyrics in v1" line in `AGENTS.md` § Scope boundaries so it no longer forbids lyrics
-- [ ] 1.2 Update the scope-boundaries block in `openspec/config.yaml` (`context:`) to match — drop the "NO lyrics" line
-- [ ] 1.3 Confirm `openspec validate --all --strict` still passes after the doc edits
+- [x] 1.1 Remove/rewrite the "No lyrics in v1" line in `AGENTS.md` § Scope boundaries so it no longer forbids lyrics
+- [x] 1.2 Update the scope-boundaries block in `openspec/config.yaml` (`context:`) to match — drop the "NO lyrics" line
+- [x] 1.3 Confirm `openspec validate --all --strict` still passes after the doc edits
 
 ## 2. LRC parser (pure logic, host-testable)
 
-- [ ] 2.1 Add an LRC parser module (`[mm:ss.xx] text` → sorted list of `{ms, text}` lines) with a plain-vs-synced classification and a duration-fingerprint field
-- [ ] 2.2 Add the parser source to the `test_native` `build_src_filter` in `platformio.ini`
-- [ ] 2.3 Host unit tests (Unity, `test/host/`): well-formed synced LRC, plain lyrics (no timestamps → classified unsynced), malformed/garbage input (no crash, empty result), out-of-order timestamps (sorted), and current-line lookup for a given position
+- [x] 2.1 Add an LRC parser module (`[mm:ss.xx] text` → sorted list of `{ms, text}` lines) with a plain-vs-synced classification and a duration-fingerprint field
+- [x] 2.2 Add the parser source to the `test_native` `build_src_filter` in `platformio.ini`
+- [x] 2.3 Host unit tests (Unity, `test/host/`): well-formed synced LRC, plain lyrics (no timestamps → classified unsynced), malformed/garbage input (no crash, empty result), out-of-order timestamps (sorted), and current-line lookup for a given position
 
 ## 3. Lyrics fetch service (core 0, modeled on art.cpp)
 

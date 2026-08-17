@@ -12,7 +12,9 @@ context: |
   - NO Sonos cloud/OAuth API.
   - NO recently-played history — it is not exposed over UPnP; Favorites only.
   - NO TV / line-in source switching.
-  - NO lyrics (explicitly deferred past v1).
+  - Lyrics come ONLY from a keyless public lyrics source over the LAN's
+    internet uplink (e.g. LRCLIB) — never the Sonos cloud/OAuth API, never
+    Home Assistant. Lyrics are best-effort: any failure degrades silently.
 
   ## Hardware
   Primary board — Elecrow CrowPanel 2.1" ESP32-S3 rotary display:

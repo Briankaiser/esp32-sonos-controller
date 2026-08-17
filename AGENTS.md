@@ -45,7 +45,10 @@ These are settled decisions. Do not propose reversing them without discussion.
 - **No Sonos cloud or OAuth API.**
 - **No recently-played history.** It is not exposed over UPnP. Favorites only.
 - **No TV or line-in source switching.**
-- **No lyrics** in v1.
+- **Lyrics come only from a keyless public lyrics source over the LAN's
+  internet uplink** (e.g. LRCLIB) — never from the Sonos cloud/OAuth API and
+  never via Home Assistant. Lyrics are strictly best-effort: any failure or
+  untrustworthy timing degrades silently to the normal now-playing screen.
 
 ## Architecture rules
 

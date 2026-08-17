@@ -27,6 +27,8 @@ updates are direct HTTP on the local network.
 
 ## 1. Build the new firmware
 
+See the **[Firmware Build Runbook](build-firmware.md)** for full details.
+
 ```bash
 pio run -e crowpanel_21_round
 ```

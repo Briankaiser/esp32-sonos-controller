@@ -26,7 +26,9 @@ namespace service {
     void        init();               // allocate the PSRAM response buffer + mutex
     void        start_task();         // spawn the lyrics task (core 0, low priority)
     void        notify_new_track();   // wake the task to (re)fetch (sonos task only)
-    LyricsState snapshot();           // any task — mutex-guarded copy
+    LyricsState snapshot();           // any task — mutex-guarded copy (deep-copies the doc)
+    uint32_t    version();            // any task — cheap: read the publish counter only
+    String      published_track_key();// any task — cheap: read the held track key only
     String      track_key(const sonos::PlaybackState& pb);  // identity string for a track
 }
 

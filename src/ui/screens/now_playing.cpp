@@ -779,9 +779,13 @@ void screens::now_playing_refresh_art() {
 void screens::now_playing_refresh_lyrics() {
     if (!s_lyrics_cont) return;  // screen not built yet
 
-    lyrics::LyricsState ls = lyrics::service::snapshot();
-    if (ls.version == s_lyrics_version) return;  // no structural change; interp drives the highlight
+    // Cheap gate first: read only the publish counter. The full snapshot()
+    // deep-copies the whole lyric doc (a String per line), so it must NOT run
+    // every UI frame — only when a new lyrics version has actually been
+    // published. This is what keeps the interface task off the heap at 55fps.
+    if (lyrics::service::version() == s_lyrics_version) return;
 
+    lyrics::LyricsState ls = lyrics::service::snapshot();
     s_lyrics_version   = ls.version;
     s_lyrics_doc       = ls.doc;
     s_lyrics_available = ls.available;

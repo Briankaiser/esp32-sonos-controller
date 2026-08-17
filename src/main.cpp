@@ -265,10 +265,11 @@ static void sonos_task(void* /*arg*/) {
                     }
                     // Signal lyrics task when the track identity changes. The task
                     // itself de-dupes and caches negatives, so a bare notify on any
-                    // identity mismatch is safe and cheap.
-                    lyrics::LyricsState lyr_cur = lyrics::service::snapshot();
+                    // identity mismatch is safe and cheap. Compare against the held
+                    // key only — never snapshot() here, which would deep-copy the
+                    // whole lyric doc every poll.
                     if (!pb.title.isEmpty() &&
-                        lyrics::service::track_key(pb) != lyr_cur.track_key) {
+                        lyrics::service::track_key(pb) != lyrics::service::published_track_key()) {
                         lyrics::service::notify_new_track();
                     }
                 }

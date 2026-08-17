@@ -27,7 +27,6 @@ static SemaphoreHandle_t s_mutex            = nullptr;
 static LyricsState       s_state;
 static TaskHandle_t      s_task_handle      = nullptr;
 
-static String            s_resolved_key;                 // key with a definitive published result
 static String            s_last_fail_key;                // key whose last attempt failed transiently
 static uint32_t          s_last_fail_ms     = 0;
 
@@ -63,13 +62,16 @@ static void publish(const LyricsState& next) {
     xSemaphoreGive(s_mutex);
 }
 
-// Publish an empty state for `key` so any previous track's lyrics vanish
-// immediately when the track changes, before the (slow) fetch even starts.
-static void publish_cleared(const String& key) {
+// Publish an empty state so any previous track's lyrics vanish immediately when
+// the track changes, before the (slow) fetch even starts. track_key is left
+// empty on purpose: it marks "unresolved", so the poll-side trigger keeps
+// notifying until a definitive result is published — which is what makes the
+// transient-failure backoff below actually reachable.
+static void publish_cleared() {
     LyricsState cleared;
     cleared.available = false;
     cleared.synced    = false;
-    cleared.track_key = key;
+    cleared.track_key = String();
     publish(cleared);
 }
 
@@ -83,7 +85,7 @@ static size_t fetch_body(const String& path, int* http_status) {
 
     WiFiClientSecure client;
     client.setInsecure();          // public lyrics text; no CA bundle shipped (as with art)
-    client.setTimeout(kFetchTimeoutMs / 1000);
+    client.setTimeout(kFetchTimeoutMs);   // Stream read timeout, in ms (matches art.cpp)
     uint32_t deadline = millis() + kFetchTimeoutMs;
 
     if (!client.connect(kHost, kPort)) {
@@ -185,16 +187,19 @@ static void handle_current_track() {
     String key = service::track_key(pb);
 
     if (key.isEmpty()) { return; }             // no track metadata yet — nothing to do
-    if (key == s_resolved_key) return;         // already have a definitive result for this track
+
+    // Dedup on what is *currently published*, not on an ever-resolved key: we
+    // keep only one published doc, so if the published key already matches this
+    // track we have its definitive result (lyrics or a cached negative) and can
+    // skip. A published key of "" means unresolved/pending.
+    String pub = service::published_track_key();
+    if (key == pub) return;
 
     // Backoff after a transient miss so we don't hammer LRCLIB during an outage.
     if (key == s_last_fail_key && (millis() - s_last_fail_ms) < kRetryBackoffMs) return;
 
-    // Track changed: clear the previous song's lyrics immediately.
-    {
-        LyricsState cur = service::snapshot();
-        if (cur.track_key != key) publish_cleared(key);
-    }
+    // Showing another track: clear its lyrics immediately so they never linger.
+    if (pub != String()) publish_cleared();
 
     String path = build_lrclib_path(pb.artist, pb.title, pb.album, pb.duration_s);
     int http_status = -1;
@@ -215,9 +220,8 @@ static void handle_current_track() {
         return;
     }
 
-    // Definitive answer (2xx with a body, or an error/404 with none). Either
-    // way this track is resolved — don't refetch it.
-    s_resolved_key  = key;
+    // Definitive answer (2xx with a body, or an error/404 with none). Publishing
+    // with track_key=key below marks this track resolved so future polls dedup.
     s_last_fail_key = String();
 
     LyricsState next;
@@ -298,6 +302,20 @@ LyricsState service::snapshot() {
     LyricsState copy = s_state;
     xSemaphoreGive(s_mutex);
     return copy;
+}
+
+uint32_t service::version() {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    uint32_t v = s_state.version;
+    xSemaphoreGive(s_mutex);
+    return v;
+}
+
+String service::published_track_key() {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    String k = s_state.track_key;
+    xSemaphoreGive(s_mutex);
+    return k;
 }
 
 String service::track_key(const sonos::PlaybackState& pb) {

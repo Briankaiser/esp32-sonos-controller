@@ -55,11 +55,16 @@ static String read_line(Client& client, uint32_t deadline) {
 
 // ── Publish helpers ───────────────────────────────────────────────────────────
 
-static void publish(const LyricsState& next) {
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
+// Caller must hold s_mutex.
+static void publish_locked(const LyricsState& next) {
     uint32_t v = s_state.version + 1;
     s_state = next;
     s_state.version = v;
+}
+
+static void publish(const LyricsState& next) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    publish_locked(next);
     xSemaphoreGive(s_mutex);
 }
 
@@ -269,7 +274,15 @@ static void handle_current_track() {
                   key.c_str(),
                   next.available ? (next.synced ? "synced" : "static") : "none",
                   (unsigned)next.doc.lines.size(), http_status);
-    publish(next);
+
+    // Publish only if the feature is still enabled, under the same lock that
+    // set_enabled() uses to flip the flag. This closes the disable-mid-fetch
+    // race: a disable that lands during the parse above either happens before
+    // this check (we skip the publish) or after (its cleared state wins), so a
+    // stale result can never resurrect lyrics that the user just turned off.
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (s_enabled) publish_locked(next);
+    xSemaphoreGive(s_mutex);
 }
 
 // ── Task body ─────────────────────────────────────────────────────────────────
@@ -305,13 +318,18 @@ void service::notify_new_track() {
 }
 
 void service::set_enabled(bool on) {
-    if (s_enabled == on) return;
+    // Flip the flag and, on disable, clear the shown lyrics atomically under the
+    // mutex so this cannot interleave with the task's final publish (see the
+    // publish-if-enabled in handle_current_track).
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    bool changed = (s_enabled != on);
     s_enabled = on;
-    if (on) {
-        notify_new_track();   // fetch for whatever is playing now
-    } else {
-        publish_cleared();    // hide any shown lyrics immediately
+    if (changed && !on) {
+        LyricsState cleared;      // available=false, synced=false, track_key=""
+        publish_locked(cleared);
     }
+    xSemaphoreGive(s_mutex);
+    if (changed && on) notify_new_track();   // fetch for whatever is playing now
 }
 
 bool service::enabled() { return s_enabled; }

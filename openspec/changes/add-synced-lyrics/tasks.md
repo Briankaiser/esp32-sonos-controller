@@ -28,6 +28,12 @@
 - [x] 4.4 Untrustworthy timing (plain/unsynced lyrics, duration mismatch, unreliable position) renders static text or nothing — never a moving highlight; verify all lyric glyphs are clipped within the safe area
 - [x] 4.5 No-lyrics path renders exactly today's layout (metadata reclaims full space, no lyric region); controls, progress bar, and album art undisturbed across the layout switch
 
+## 4b. Lyrics on/off setting
+
+- [x] 4b.1 Add a persisted `lyrics_enabled` bool to `prefs` (default on), mirroring `group_volume_mode`
+- [x] 4b.2 Add `service::set_enabled(bool)` / `enabled()`: gate the fetch task, clear shown lyrics on disable, refetch on enable; restore from prefs at boot in `main.cpp` and gate the poll trigger
+- [x] 4b.3 Add a "Lyrics: On/Off" toggle to the settings screen that writes the pref and applies it immediately
+
 ## 5. Verification and wrap-up
 
 - [x] 5.1 Both PlatformIO envs build: `pio run -e crowpanel_21_round` and `pio run -e ref_rect_stub`

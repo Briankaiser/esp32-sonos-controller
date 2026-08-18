@@ -7,6 +7,7 @@ namespace {
     constexpr const char* kPass  = "wifi_pass";
     constexpr const char* kRoom  = "home_room";
     constexpr const char* kGvol  = "grp_vol";
+    constexpr const char* kLyrics = "lyrics_on";
     constexpr const char* kOta   = "ota_pass";
 }
 
@@ -65,6 +66,22 @@ void prefs::set_group_volume_mode(bool whole_group) {
     p.putBool(kGvol, whole_group);
     p.end();
     Serial.printf("[Prefs] group_volume_mode set to %s\n", whole_group ? "whole_group" : "home_room_only");
+}
+
+bool prefs::lyrics_enabled() {
+    Preferences p;
+    p.begin(kNs, true);
+    bool v = p.getBool(kLyrics, true);   // default on
+    p.end();
+    return v;
+}
+
+void prefs::set_lyrics_enabled(bool on) {
+    Preferences p;
+    p.begin(kNs, false);
+    p.putBool(kLyrics, on);
+    p.end();
+    Serial.printf("[Prefs] lyrics_enabled set to %s\n", on ? "on" : "off");
 }
 
 String prefs::ota_pass() {

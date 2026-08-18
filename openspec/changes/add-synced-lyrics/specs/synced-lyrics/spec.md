@@ -93,3 +93,30 @@ The device SHALL highlight a lyric line in real time only when the line-level ti
 
 - **WHEN** the current playback position cannot be trusted to line-level accuracy
 - **THEN** the device suppresses the real-time highlight rather than advancing a line that may be wrong
+
+### Requirement: Lyrics Can Be Turned Off And The Setting Persists
+
+The device SHALL provide a user setting to enable or disable lyrics. The setting SHALL persist across reboots and SHALL default to enabled. While lyrics are disabled, the device SHALL NOT request lyrics and SHALL show no lyric region. Disabling lyrics while a lyric region is on screen SHALL remove it immediately, reverting to the metadata-only layout. Enabling lyrics SHALL cause the device to request lyrics for the current track.
+
+#### Scenario: Disabled — no fetch, no region
+
+- **WHEN** the lyrics setting is disabled and a track is playing
+- **THEN** the device does not request lyrics for that track
+- **AND** no lyric region is shown
+
+#### Scenario: Turning lyrics off while they are on screen
+
+- **WHEN** a lyric region is displayed and the user turns lyrics off
+- **THEN** the lyric region is removed immediately
+- **AND** the metadata region returns to showing the full title, artist, and album
+
+#### Scenario: Turning lyrics on
+
+- **WHEN** the user turns lyrics on while a track is playing
+- **THEN** the device requests lyrics for the current track
+- **AND** they are displayed if available and trustworthy, following the normal rules
+
+#### Scenario: Setting survives a reboot
+
+- **WHEN** the user disables lyrics and the device restarts
+- **THEN** lyrics remain disabled after the restart until the user re-enables them

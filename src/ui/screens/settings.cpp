@@ -5,6 +5,7 @@
 #include "../../app/sonos/playback.h"
 #include "../../app/sonos/eventing.h"
 #include "../../app/sonos/state.h"
+#include "../../app/lyrics/service.h"
 #include "../../services/prefs.h"
 #include "../theme/accent.h"
 #include "list_btn.h"
@@ -17,6 +18,7 @@
 static lv_obj_t* s_settings_overlay = nullptr;
 static lv_obj_t* s_room_btn         = nullptr;
 static lv_obj_t* s_gvol_btn         = nullptr;
+static lv_obj_t* s_lyrics_btn       = nullptr;
 static lv_obj_t* s_picker           = nullptr;
 static lv_obj_t* s_group_overlay    = nullptr;
 
@@ -128,6 +130,7 @@ static void close_settings() {
     }
     s_room_btn = nullptr;
     s_gvol_btn = nullptr;
+    s_lyrics_btn = nullptr;
     nav::clear_list();
 }
 
@@ -440,6 +443,18 @@ void screens::settings_open() {
             lv_label_set_text(lbl,
                 !current ? "Group Volume: Whole group" : "Group Volume: Home room only");
         }
+    }, LV_EVENT_CLICKED, nullptr);
+
+    // ── Lyrics toggle ─────────────────────────────────────────────────────────
+    bool lyrics_on = prefs::lyrics_enabled();
+    const char* lyrics_text = lyrics_on ? "Lyrics: On" : "Lyrics: Off";
+    s_lyrics_btn = make_list_btn(list, lyrics_text);
+    lv_obj_add_event_cb(s_lyrics_btn, [](lv_event_t*) {
+        bool next = !prefs::lyrics_enabled();
+        prefs::set_lyrics_enabled(next);
+        lyrics::service::set_enabled(next);   // clears shown lyrics / refetches for the current track
+        lv_obj_t* lbl = lv_obj_get_child(s_lyrics_btn, 0);
+        if (lbl) lv_label_set_text(lbl, next ? "Lyrics: On" : "Lyrics: Off");
     }, LV_EVENT_CLICKED, nullptr);
 
     // ── Device IP + SSID — debug aid, not interactive ────────────────────────

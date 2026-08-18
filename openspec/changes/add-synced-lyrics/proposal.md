@@ -12,6 +12,7 @@ This flips the settled "**No lyrics** in v1" scope boundary. That boundary was a
 - **Now-playing layout adapts to lyrics.** When lyrics are present, the title/artist/album metadata area shrinks to free vertical space for the lyric region. When lyrics are absent (the common case, and every failure case), the layout is exactly today's — the metadata area reclaims the space.
 - **Performance is non-negotiable.** The sustained ≥55 fps budget must hold with lyrics active. Lyric buffers are allocated from PSRAM; the interface task only renders already-parsed lines and never fetches, parses, or blocks.
 - Lyrics are cached for the current track keyed on track identity, so re-polling the same track issues no new fetch (mirrors album art's "don't re-fetch the same URL" rule).
+- **User can turn lyrics off.** A persisted setting on the settings screen enables/disables the feature (default on). When off, no lyrics are fetched or shown; toggling takes effect immediately.
 
 ## Capabilities
 
@@ -21,6 +22,7 @@ This flips the settled "**No lyrics** in v1" scope boundary. That boundary was a
 ### Modified Capabilities
 - `now-playing-screen`: The track-metadata region is anchored at the top in every state. When timed lyrics are available the metadata shrinks in place — dropping the album line, keeping title and artist — and a lyric region with the current line highlighted appears below it; the metadata's top edge never moves. When lyrics are absent the region shows full title/artist/album at that same top anchor.
 - `runtime-architecture`: Lyric fetch and LRC parse SHALL run on a task other than the interface task and deliver results by message passing; lyric buffers SHALL be allocated from PSRAM; the sustained ≥55 fps budget SHALL hold while lyrics are active.
+- `settings-screen`: The settings screen SHALL provide a persisted on/off control for lyrics that takes effect immediately.
 
 ## Impact
 

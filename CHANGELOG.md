@@ -19,7 +19,9 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
   with playback. Lyrics are fetched from LRCLIB (no account, no API key) over
   the network and are strictly best-effort — when there is no internet, no match
   is found, or the match's timing can't be trusted, the screen shows no lyrics
-  and looks exactly as it did before, with no error shown.
+  and looks exactly as it did before, with no error shown. Lyrics can be turned
+  on or off from a setting on the settings screen (on by default); the choice
+  persists across restarts.
 
 ### Removed
 

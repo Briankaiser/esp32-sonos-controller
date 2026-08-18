@@ -268,7 +268,7 @@ static void sonos_task(void* /*arg*/) {
                     // identity mismatch is safe and cheap. Compare against the held
                     // key only — never snapshot() here, which would deep-copy the
                     // whole lyric doc every poll.
-                    if (!pb.title.isEmpty() &&
+                    if (lyrics::service::enabled() && !pb.title.isEmpty() &&
                         lyrics::service::track_key(pb) != lyrics::service::published_track_key()) {
                         lyrics::service::notify_new_track();
                     }
@@ -514,6 +514,7 @@ void setup() {
     favorites::init();
     art::start_task();
     lyrics::service::start_task();
+    lyrics::service::set_enabled(prefs::lyrics_enabled());  // restore the saved on/off setting
 
     // Spawn tasks. cmd_task first (priority 4) so its notify handle is registered
     // before the UI task can enqueue any command.

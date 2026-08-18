@@ -29,6 +29,7 @@ static TaskHandle_t      s_task_handle      = nullptr;
 
 static String            s_last_fail_key;                // key whose last attempt failed transiently
 static uint32_t          s_last_fail_ms     = 0;
+static volatile bool     s_enabled          = true;      // user setting; written UI task, read lyrics task
 
 // ── Deadline / line helpers (same shape as art.cpp) ───────────────────────────
 
@@ -183,6 +184,8 @@ done:
 // ── One fetch-and-publish cycle for the current track ─────────────────────────
 
 static void handle_current_track() {
+    if (!s_enabled) return;                    // feature switched off — never fetch
+
     sonos::PlaybackState pb = sonos::playback::snapshot();
     String key = service::track_key(pb);
 
@@ -204,6 +207,10 @@ static void handle_current_track() {
     String path = build_lrclib_path(pb.artist, pb.title, pb.album, pb.duration_s);
     int http_status = -1;
     size_t n = fetch_body(path, &http_status);
+
+    // If the feature was switched off during the fetch, drop the result — the
+    // disable already published a cleared state.
+    if (!s_enabled) return;
 
     // Re-check the track hasn't changed under us during the fetch. If it has, a
     // pending notification will re-run this for the new track — discard now.
@@ -296,6 +303,18 @@ void service::start_task() {
 void service::notify_new_track() {
     if (s_task_handle) xTaskNotifyGive(s_task_handle);
 }
+
+void service::set_enabled(bool on) {
+    if (s_enabled == on) return;
+    s_enabled = on;
+    if (on) {
+        notify_new_track();   // fetch for whatever is playing now
+    } else {
+        publish_cleared();    // hide any shown lyrics immediately
+    }
+}
+
+bool service::enabled() { return s_enabled; }
 
 LyricsState service::snapshot() {
     xSemaphoreTake(s_mutex, portMAX_DELAY);

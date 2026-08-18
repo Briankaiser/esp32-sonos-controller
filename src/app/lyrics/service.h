@@ -26,6 +26,8 @@ namespace service {
     void        init();               // allocate the PSRAM response buffer + mutex
     void        start_task();         // spawn the lyrics task (core 0, low priority)
     void        notify_new_track();   // wake the task to (re)fetch (sonos task only)
+    void        set_enabled(bool on); // any task — gate the feature; clears/refetches accordingly
+    bool        enabled();            // any task — is the lyrics feature currently on
     LyricsState snapshot();           // any task — mutex-guarded copy (deep-copies the doc)
     uint32_t    version();            // any task — cheap: read the publish counter only
     String      published_track_key();// any task — cheap: read the held track key only

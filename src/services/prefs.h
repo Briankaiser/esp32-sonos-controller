@@ -15,6 +15,8 @@ String home_room();
 void   set_home_room(const String& uuid);
 bool   group_volume_mode();                   // false = home room only (default); true = whole group
 void   set_group_volume_mode(bool whole_group);
+bool   lyrics_enabled();                       // true = fetch & show synced lyrics (default)
+void   set_lyrics_enabled(bool on);
 String ota_pass();
 
 // All-or-nothing write of all provisioning fields.

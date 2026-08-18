@@ -145,4 +145,14 @@ bool duration_trusted(uint32_t matched_s, uint32_t playing_s, uint32_t tolerance
     return diff <= tolerance_s;
 }
 
+String track_key(const String& artist, const String& title,
+                 const String& album, uint32_t duration_s) {
+    if (title.length() == 0) return String();   // no title → nothing to fetch
+    String k = artist; k += '\x1f';
+    k += title;        k += '\x1f';
+    k += album;        k += '\x1f';
+    k += String(duration_s);
+    return k;
+}
+
 } // namespace lyrics

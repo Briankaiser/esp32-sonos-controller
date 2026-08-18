@@ -356,13 +356,8 @@ String service::published_track_key() {
 }
 
 String service::track_key(const sonos::PlaybackState& pb) {
-    if (pb.title.isEmpty()) return String();
-    // Unit-separator joins so no field's contents can spoof a boundary.
-    String k = pb.artist; k += '\x1f';
-    k += pb.title;        k += '\x1f';
-    k += pb.album;        k += '\x1f';
-    k += String(pb.duration_s);
-    return k;
+    // Core identity logic lives in lyrics_api (pure, host-tested).
+    return lyrics::track_key(pb.artist, pb.title, pb.album, pb.duration_s);
 }
 
 } // namespace lyrics

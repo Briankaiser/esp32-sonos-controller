@@ -33,6 +33,7 @@
 - [x] 4b.1 Add a persisted `lyrics_enabled` bool to `prefs` (default on), mirroring `group_volume_mode`
 - [x] 4b.2 Add `service::set_enabled(bool)` / `enabled()`: gate the fetch task, clear shown lyrics on disable, refetch on enable; restore from prefs at boot in `main.cpp` and gate the poll trigger
 - [x] 4b.3 Add a "Lyrics: On/Off" toggle to the settings screen that writes the pref and applies it immediately
+- [x] 4b.4 Extract `track_key` into the pure `lyrics_api` module (identity/de-dup logic) and host-test it: empty-title gate, distinct tracks, duration as identity, unforgeable field separator, stability
 
 ## 5. Verification and wrap-up
 

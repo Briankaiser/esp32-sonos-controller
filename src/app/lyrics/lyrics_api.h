@@ -32,4 +32,11 @@ bool json_extract_number(const String& body, const String& key, uint32_t& out);
 // playing_s? True only when both are non-zero and within tolerance_s seconds.
 bool duration_trusted(uint32_t matched_s, uint32_t playing_s, uint32_t tolerance_s);
 
+// Stable identity string for a track, used to de-dup fetches and decide when to
+// refetch. Returns empty when the title is empty (nothing worth fetching). The
+// fields are joined with a unit separator (0x1F) so no field's contents can
+// forge a boundary — "AB|C" and "A|BC" must never collide.
+String track_key(const String& artist, const String& title,
+                 const String& album, uint32_t duration_s);
+
 } // namespace lyrics

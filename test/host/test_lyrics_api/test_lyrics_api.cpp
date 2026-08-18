@@ -109,6 +109,40 @@ void test_duration_trust_gate() {
     TEST_ASSERT_FALSE(duration_trusted(233, 0, 2));     // unknown playing
 }
 
+// ── track_key ─────────────────────────────────────────────────────────────────
+
+void test_track_key_empty_title_is_empty() {
+    // No title → nothing to fetch → empty key (the "no track yet" gate).
+    TEST_ASSERT_EQUAL_STRING("", track_key("Artist", "", "Album", 200).c_str());
+}
+
+void test_track_key_distinguishes_tracks() {
+    String a = track_key("Artist", "Song A", "Album", 200);
+    String b = track_key("Artist", "Song B", "Album", 200);
+    TEST_ASSERT_TRUE(a != b);
+}
+
+void test_track_key_duration_is_part_of_identity() {
+    // Same metadata, different reported duration → different key (a remaster
+    // must not reuse the previous match).
+    String a = track_key("Artist", "Song", "Album", 200);
+    String b = track_key("Artist", "Song", "Album", 233);
+    TEST_ASSERT_TRUE(a != b);
+}
+
+void test_track_key_separator_prevents_collision() {
+    // Field boundaries must be unforgeable: ("AB","C",...) != ("A","BC",...).
+    String a = track_key("AB", "C", "", 0);
+    String b = track_key("A", "BC", "", 0);
+    TEST_ASSERT_TRUE(a != b);
+}
+
+void test_track_key_stable_for_same_track() {
+    String a = track_key("Daft Punk", "One More Time", "Discovery", 320);
+    String b = track_key("Daft Punk", "One More Time", "Discovery", 320);
+    TEST_ASSERT_EQUAL_STRING(a.c_str(), b.c_str());
+}
+
 // ── runner ────────────────────────────────────────────────────────────────────
 
 int main(int /*argc*/, char** /*argv*/) {
@@ -130,6 +164,12 @@ int main(int /*argc*/, char** /*argv*/) {
     RUN_TEST(test_json_number_missing);
 
     RUN_TEST(test_duration_trust_gate);
+
+    RUN_TEST(test_track_key_empty_title_is_empty);
+    RUN_TEST(test_track_key_distinguishes_tracks);
+    RUN_TEST(test_track_key_duration_is_part_of_identity);
+    RUN_TEST(test_track_key_separator_prevents_collision);
+    RUN_TEST(test_track_key_stable_for_same_track);
 
     return UNITY_END();
 }

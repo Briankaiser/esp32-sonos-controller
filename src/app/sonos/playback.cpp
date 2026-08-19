@@ -14,12 +14,12 @@ static SemaphoreHandle_t       s_mutex            = nullptr;
 static QueueHandle_t           s_cmd_queue        = nullptr;
 static sonos::PlaybackState    s_state;
 static std::atomic<int16_t>    s_desired_volume{-1};  // -1 = none pending; 0-100 = optimistic desired
-static std::atomic<int16_t>    s_member_delta_sent{0}; // cumulative delta already sent to group members this gesture
-// Per-gesture member balance: member_vol - home_vol captured on first flush.
-// Valid when s_member_delta_sent != 0; reset alongside s_member_delta_sent.
-struct MemberOffset { String uuid; int16_t offset; };
-static MemberOffset            s_member_offsets[8];
-static uint8_t                 s_member_offset_count = 0;
+static std::atomic<int16_t>    s_member_delta_sent{0}; // cumulative group adjustment already sent this gesture
+// Home volume captured at the start of a volume gesture. total_delta is measured
+// against THIS fixed base, not the live s_state.volume — a poll that confirms an
+// intermediate volume mid-gesture must not shift the baseline and corrupt the
+// next incremental group adjustment.
+static std::atomic<int16_t>    s_gesture_base_volume{-1};
 static std::atomic<uint8_t>    s_boost_polls{0};
 static std::atomic<bool>       s_idle{false};
 // Optimistic transport guard: after Play/Pause, ignore poll results that contradict
@@ -135,8 +135,8 @@ void sonos::playback::enqueue_volume_delta(int16_t delta) {
         xSemaphoreTake(s_mutex, portMAX_DELAY);
         base = (int16_t)s_state.volume;
         xSemaphoreGive(s_mutex);
-        s_member_delta_sent.store(0, std::memory_order_relaxed);  // new gesture — reset member tracking
-        s_member_offset_count = 0;
+        s_member_delta_sent.store(0, std::memory_order_relaxed);      // new gesture — reset tracking
+        s_gesture_base_volume.store(base, std::memory_order_relaxed); // fixed baseline for this gesture
     }
     int16_t desired = base + delta;
     if (desired < 0)   desired = 0;
@@ -461,39 +461,45 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
 }
 
 // ── flush_volume — send the current desired volume ────────────────────────────
-// Group volume mode: on the first flush of each gesture (already_sent == 0),
-// fetch each member's current volume and store offset = member_vol - home_confirmed.
-// Every flush then sets member to desired + offset — preserving the balance without
-// re-fetching and without any dependence on in-flight SetVolume responses.
+// Group volume mode with a grouped home speaker: SnapshotGroupVolume (captures
+// the members' live volume ratios) followed by SetRelativeGroupVolume, which
+// moves every member — including home — by the incremental delta while preserving
+// their balance. The snapshot is mandatory every call: without it Sonos applies
+// a stale ratio snapshot and the first adjustment visibly re-balances the group.
+//
+// The incremental delta is measured against s_gesture_base_volume (home's volume
+// captured at gesture start), NOT the live s_state.volume — a mid-gesture poll
+// that confirms an intermediate level must not shift the baseline.
+//
+// Solo speaker, mode off, or group call failed: direct SetVolume on home.
 
 void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
     int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
     if (desired < 0) return;
 
-    static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
-    static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
-    static const char* kRCBase = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+    static const char* kRCPath  = "/MediaRenderer/RenderingControl/Control";
+    static const char* kRCSvc   = "urn:schemas-upnp-org:service:RenderingControl:1";
+    static const char* kRCBase  = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+    static const char* kGRCPath = "/MediaRenderer/GroupRenderingControl/Control";
+    static const char* kGRCSvc  = "urn:schemas-upnp-org:service:GroupRenderingControl:1";
 
-    auto do_set_volume = [&](const SpeakerInfo& sp, int16_t vol) {
-        String args = String(kRCBase) + "<DesiredVolume>" + (int)vol + "</DesiredVolume>";
-        String r = sonos::soap::call(sp.ip, sp.port, kRCPath, kRCSvc, "SetVolume", args);
-        if (r.isEmpty())
-            Serial.printf("[Playback] SetVolume %d failed for %s\n", (int)vol, sp.uuid.c_str());
-    };
+    // Fixed gesture baseline (falls back to live volume if none captured yet).
+    int16_t base = s_gesture_base_volume.load(std::memory_order_relaxed);
+    if (base < 0) {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        base = (int16_t)s_state.volume;
+        xSemaphoreGive(s_mutex);
+    }
 
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
-    int16_t home_confirmed = (int16_t)s_state.volume;
-    xSemaphoreGive(s_mutex);
-
-    int16_t total_delta  = desired - home_confirmed;
+    int16_t total_delta  = desired - base;
     int16_t already_sent = s_member_delta_sent.load(std::memory_order_relaxed);
     int16_t incremental  = total_delta - already_sent;
 
-    Serial.printf("[Playback] flush: desired=%d home_conf=%d total=%+d sent=%+d incr=%+d\n",
-                  (int)desired, (int)home_confirmed, (int)total_delta,
+    Serial.printf("[Playback] flush: desired=%d base=%d total=%+d sent=%+d incr=%+d\n",
+                  (int)desired, (int)base, (int)total_delta,
                   (int)already_sent, (int)incremental);
 
-    do_set_volume(speaker, desired);
+    bool used_group = false;
 
     if (prefs::group_volume_mode() && incremental != 0) {
         SonosState st = sonos::state::snapshot();
@@ -504,49 +510,46 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
                     if (m == speaker.uuid) { home_in_group = true; break; }
             }
             if (!home_in_group) continue;
-            if (grp.member_uuids.size() <= 1) break;
+            if (grp.member_uuids.size() <= 1) break;   // home not grouped with others
 
-            // First flush of this gesture: snapshot each member's volume vs. home.
-            if (already_sent == 0) {
-                s_member_offset_count = 0;
-                for (const auto& uuid : grp.member_uuids) {
-                    if (uuid == speaker.uuid) continue;
-                    for (const auto& sp : st.speakers) {
-                        if (sp.uuid != uuid) continue;
-                        String resp = sonos::soap::call(sp.ip, sp.port, kRCPath, kRCSvc,
-                                                        "GetVolume", String(kRCBase));
-                        if (!resp.isEmpty() && s_member_offset_count < 8) {
-                            int v = extract_xml_text(resp, "CurrentVolume").toInt();
-                            int16_t cur = (int16_t)(v < 0 ? 0 : v > 100 ? 100 : v);
-                            s_member_offsets[s_member_offset_count].uuid   = uuid;
-                            s_member_offsets[s_member_offset_count].offset = cur - home_confirmed;
-                            ++s_member_offset_count;
-                            Serial.printf("[Playback] member %s: cur=%d offset=%+d\n",
-                                          uuid.c_str(), (int)cur,
-                                          (int)(cur - home_confirmed));
-                        }
-                        break;
-                    }
-                }
-            }
+            // GroupRenderingControl must be addressed to the coordinator.
+            for (const auto& sp : st.speakers) {
+                if (sp.uuid != grp.coordinator_uuid) continue;
 
-            // Apply stored offsets: member target = desired + offset (same delta as home).
-            for (uint8_t i = 0; i < s_member_offset_count; ++i) {
-                for (const auto& sp : st.speakers) {
-                    if (sp.uuid != s_member_offsets[i].uuid) continue;
-                    int16_t target = desired + s_member_offsets[i].offset;
-                    if (target < 0)   target = 0;
-                    if (target > 100) target = 100;
-                    Serial.printf("[Playback] SetVolume %d (offset %+d) for %s\n",
-                                  (int)target, (int)s_member_offsets[i].offset,
-                                  sp.uuid.c_str());
-                    do_set_volume(sp, target);
-                    break;
+                // 1) Capture live ratios so the relative move re-balances correctly.
+                String snap = sonos::soap::call(sp.ip, sp.port, kGRCPath, kGRCSvc,
+                                                "SnapshotGroupVolume",
+                                                "<InstanceID>0</InstanceID>");
+                // 2) Apply the incremental delta to the whole group in one call.
+                String adj  = String("<InstanceID>0</InstanceID><Adjustment>")
+                            + (int)incremental + "</Adjustment>";
+                String r = sonos::soap::call(sp.ip, sp.port, kGRCPath, kGRCSvc,
+                                             "SetRelativeGroupVolume", adj);
+                if (snap.isEmpty() || r.isEmpty()) {
+                    Serial.printf("[Playback] group volume %+d failed (snap %s, set %s)\n",
+                                  (int)incremental,
+                                  snap.isEmpty() ? "err" : "ok",
+                                  r.isEmpty() ? "err" : "ok");
+                } else {
+                    Serial.printf("[Playback] SetRelativeGroupVolume %+d via %s\n",
+                                  (int)incremental, grp.coordinator_uuid.c_str());
+                    s_member_delta_sent.store(total_delta, std::memory_order_relaxed);
+                    used_group = true;
                 }
+                break;
             }
-            s_member_delta_sent.store(total_delta, std::memory_order_relaxed);
             break;  // home belongs to at most one group
         }
+    }
+
+    if (!used_group) {
+        // Solo, mode off, incremental already zero, or group call failed:
+        // drive the home speaker directly to the desired absolute level.
+        String args = String(kRCBase) + "<DesiredVolume>" + (int)desired + "</DesiredVolume>";
+        String r = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc,
+                                     "SetVolume", args);
+        if (r.isEmpty())
+            Serial.printf("[Playback] SetVolume %d failed\n", (int)desired);
     }
 
     s_last_volume_flush_ms.store(millis(), std::memory_order_relaxed);
@@ -635,7 +638,7 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
         if (desired >= 0 && (uint8_t)desired == volume) {
             s_desired_volume.store(-1, std::memory_order_relaxed);
             s_member_delta_sent.store(0, std::memory_order_relaxed);
-            s_member_offset_count = 0;
+            s_gesture_base_volume.store(-1, std::memory_order_relaxed);
         }
     }
 
@@ -723,7 +726,7 @@ void sonos::playback::poll_volume(const SpeakerInfo& speaker) {
         if (desired >= 0 && (uint8_t)desired == volume) {
             s_desired_volume.store(-1, std::memory_order_relaxed);
             s_member_delta_sent.store(0, std::memory_order_relaxed);
-            s_member_offset_count = 0;
+            s_gesture_base_volume.store(-1, std::memory_order_relaxed);
         }
     }
 
@@ -849,7 +852,7 @@ void sonos::playback::ingest_event_rendering(const sonos::gena::RenderingControl
                 // event that confirms our write and freeze s_state.volume.
                 s_desired_volume.store(-1, std::memory_order_relaxed);
                 s_member_delta_sent.store(0, std::memory_order_relaxed);
-                s_member_offset_count = 0;
+                s_gesture_base_volume.store(-1, std::memory_order_relaxed);
             } else {
                 apply_volume = false;  // a newer desired is pending — event is stale
             }

@@ -175,15 +175,11 @@ lv_obj_t* screens::now_playing_create() {
     lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
-    // ── SLOT_ALBUM_ART — full-screen background; tap opens favorites ─────────
+    // ── SLOT_ALBUM_ART — full-screen background ───────────────────────────────
     s_art_cont = layout_container(scr, SLOT_ALBUM_ART);
     lv_obj_set_style_bg_color(s_art_cont, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_art_cont, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_remove_flag(s_art_cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_art_cont, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_art_cont, [](lv_event_t*) {
-        screens::now_playing_open_favorites_overlay();
-    }, LV_EVENT_CLICKED, nullptr);
 
     s_art_img = lv_image_create(s_art_cont);
     lv_obj_set_size(s_art_img, lv_pct(100), lv_pct(100));
@@ -433,19 +429,41 @@ lv_obj_t* screens::now_playing_create() {
     // the edge, rather than the arc drawing over the discs.
     lv_obj_move_to_index(vol_cont, 1);
 
-    // ── SLOT_STATUS — settings entry point (gear icon) ──────────────────────
+    // ── SLOT_STATUS — heart (favorites) left, gear (settings) right ──────────
+    // Two half-width touch targets inside the slot so both have comfortable
+    // independent tap areas. Parent is not clickable; only the children are.
     s_status_cont = slot_container(scr, SLOT_STATUS);
-    lv_obj_add_flag(s_status_cont, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_status_cont, [](lv_event_t*) {
-        screens::settings_open();
+    lv_obj_remove_flag(s_status_cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(s_status_cont, 0, 0);
+
+    auto make_icon_btn = [](lv_obj_t* parent, const char* symbol) -> lv_obj_t* {
+        lv_obj_t* btn = lv_obj_create(parent);
+        lv_obj_set_size(btn, lv_pct(50), lv_pct(100));
+        lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(btn, 0, 0);
+        lv_obj_set_style_pad_all(btn, 0, 0);
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t* lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, symbol);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_48, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_opa(lbl, LV_OPA_50, 0);
+        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+        return btn;
+    };
+
+    lv_obj_t* heart_btn = make_icon_btn(s_status_cont, LV_SYMBOL_AUDIO);  // fa-music — favorites
+    lv_obj_align(heart_btn, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_add_event_cb(heart_btn, [](lv_event_t*) {
+        screens::now_playing_open_favorites_overlay();
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t* gear_lbl = lv_label_create(s_status_cont);
-    lv_label_set_text(gear_lbl, LV_SYMBOL_SETTINGS);
-    lv_obj_set_style_text_font(gear_lbl, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(gear_lbl, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_opa(gear_lbl, LV_OPA_30, 0);
-    lv_obj_align(gear_lbl, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t* gear_btn = make_icon_btn(s_status_cont, LV_SYMBOL_SETTINGS);
+    lv_obj_align(gear_btn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(gear_btn, [](lv_event_t*) {
+        screens::settings_open();
+    }, LV_EVENT_CLICKED, nullptr);
 
     // 1 s interpolation timer
     s_interp_timer = lv_timer_create(interp_tick, 1000, nullptr);

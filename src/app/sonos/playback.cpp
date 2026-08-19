@@ -14,6 +14,7 @@ static SemaphoreHandle_t       s_mutex            = nullptr;
 static QueueHandle_t           s_cmd_queue        = nullptr;
 static sonos::PlaybackState    s_state;
 static std::atomic<int16_t>    s_desired_volume{-1};  // -1 = none pending; 0-100 = optimistic desired
+static std::atomic<int16_t>    s_member_delta_sent{0}; // cumulative delta already sent to group members this gesture
 static std::atomic<uint8_t>    s_boost_polls{0};
 static std::atomic<bool>       s_idle{false};
 // Optimistic transport guard: after Play/Pause, ignore poll results that contradict
@@ -129,6 +130,7 @@ void sonos::playback::enqueue_volume_delta(int16_t delta) {
         xSemaphoreTake(s_mutex, portMAX_DELAY);
         base = (int16_t)s_state.volume;
         xSemaphoreGive(s_mutex);
+        s_member_delta_sent.store(0, std::memory_order_relaxed);  // new gesture — reset member tracking
     }
     int16_t desired = base + delta;
     if (desired < 0)   desired = 0;
@@ -477,25 +479,25 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
             Serial.printf("[Playback] SetVolume %d failed for %s\n", (int)vol, sp.uuid.c_str());
     };
 
-    // Fetch home speaker's live volume to anchor the delta. Using the live value
-    // makes each flush self-consistent: if the user turns quickly, the second
-    // flush measures the result of the first rather than recomputing from stale
-    // state. Fall back to s_state.volume only when the SOAP call fails.
-    int16_t home_cur = do_get_volume(speaker);
-    if (home_cur < 0) {
-        xSemaphoreTake(s_mutex, portMAX_DELAY);
-        home_cur = (int16_t)s_state.volume;
-        xSemaphoreGive(s_mutex);
-    }
-    int16_t delta = desired - home_cur;
-    Serial.printf("[Playback] SetVolume %d (delta %+d)\n", (int)desired, (int)delta);
+    // total_delta = how much we've asked the home speaker to change from its last
+    // confirmed value. We track s_member_delta_sent so each flush sends only the
+    // incremental portion to members — preventing double-counting when the home
+    // speaker is slow to confirm but a member already processed an earlier flush.
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    int16_t home_confirmed = (int16_t)s_state.volume;
+    xSemaphoreGive(s_mutex);
+
+    int16_t total_delta  = desired - home_confirmed;
+    int16_t already_sent = s_member_delta_sent.load(std::memory_order_relaxed);
+    int16_t incremental  = total_delta - already_sent;
+
+    Serial.printf("[Playback] SetVolume %d (total_delta %+d, incr %+d)\n",
+                  (int)desired, (int)total_delta, (int)incremental);
     do_set_volume(speaker, desired);
 
-    // Whole-group volume: apply the same relative delta to each group member so
-    // their individual levels shift together without being first equalized.
-    // member_uuids already includes the coordinator, so iterate once and skip
-    // the home speaker (handled above). delta==0 guard skips unnecessary calls.
-    if (prefs::group_volume_mode() && delta != 0) {
+    // Whole-group volume: apply only the INCREMENTAL delta to each group member.
+    // member_uuids already includes the coordinator; skip the home speaker.
+    if (prefs::group_volume_mode() && incremental != 0) {
         SonosState st = sonos::state::snapshot();
         for (const auto& grp : st.groups) {
             bool home_in_group = (grp.coordinator_uuid == speaker.uuid);
@@ -515,15 +517,16 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
                                       uuid.c_str());
                         break;
                     }
-                    int16_t target = cur + delta;
+                    int16_t target = cur + incremental;
                     if (target < 0)   target = 0;
                     if (target > 100) target = 100;
-                    Serial.printf("[Playback] SetVolume %d (was %d, delta %+d) for %s\n",
-                                  (int)target, (int)cur, (int)delta, uuid.c_str());
+                    Serial.printf("[Playback] SetVolume %d (was %d, incr %+d) for %s\n",
+                                  (int)target, (int)cur, (int)incremental, uuid.c_str());
                     do_set_volume(sp, target);
                     break;
                 }
             }
+            s_member_delta_sent.store(total_delta, std::memory_order_relaxed);
             break;  // home room belongs to at most one group
         }
     }
@@ -613,6 +616,7 @@ void sonos::playback::poll(const SpeakerInfo& speaker) {
         int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
         if (desired >= 0 && (uint8_t)desired == volume) {
             s_desired_volume.store(-1, std::memory_order_relaxed);
+            s_member_delta_sent.store(0, std::memory_order_relaxed);
         }
     }
 
@@ -699,6 +703,7 @@ void sonos::playback::poll_volume(const SpeakerInfo& speaker) {
         int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
         if (desired >= 0 && (uint8_t)desired == volume) {
             s_desired_volume.store(-1, std::memory_order_relaxed);
+            s_member_delta_sent.store(0, std::memory_order_relaxed);
         }
     }
 
@@ -823,6 +828,7 @@ void sonos::playback::ingest_event_rendering(const sonos::gena::RenderingControl
                 // value, so applying the window check here would drop the very
                 // event that confirms our write and freeze s_state.volume.
                 s_desired_volume.store(-1, std::memory_order_relaxed);
+                s_member_delta_sent.store(0, std::memory_order_relaxed);
             } else {
                 apply_volume = false;  // a newer desired is pending — event is stale
             }

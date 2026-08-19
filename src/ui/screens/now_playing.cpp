@@ -41,6 +41,9 @@ static sonos::PlaybackState s_last;
 // holds 2*kLyricContext + 1 rows. Fixed at build (design aid: Round Lyrics Layout).
 static constexpr int      kLyricContext = 1;
 static constexpr int      kLyricRows    = 2 * kLyricContext + 1;
+// Advance the highlight this many ms ahead of the interpolated position so the
+// transition reads as anticipatory rather than reactive. Tune on hardware.
+static constexpr uint32_t kLyricLeadMs  = 1500u;
 static lv_obj_t*          s_meta_compact_cont  = nullptr;  // shrunken title/artist (lyrics present)
 static lv_obj_t*          s_title_compact_lbl  = nullptr;
 static lv_obj_t*          s_artist_compact_lbl = nullptr;
@@ -78,16 +81,20 @@ static void update_lyric_highlight(uint32_t pos_s) {
 
     const int n = (int)s_lyrics_doc.lines.size();
     if (s_lyrics_synced) {
-        int idx = lyrics::current_line_index(s_lyrics_doc, pos_s * 1000u);
+        int idx = lyrics::current_line_index(s_lyrics_doc, pos_s * 1000u + kLyricLeadMs);
+        if (idx < 0) {
+            // Intro: song hasn't reached the first lyric yet — keep the region
+            // invisible so nothing shows until actual words are available.
+            lv_obj_add_flag(s_lyrics_cont, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+        lv_obj_remove_flag(s_lyrics_cont, LV_OBJ_FLAG_HIDDEN);
         for (int r = 0; r < kLyricRows; ++r) {
-            int line_i = (idx < 0) ? (r - kLyricContext - 1000)   // idx<0 → all rows empty except marker
-                                   : (idx - kLyricContext + r);
-            bool current = (r == kLyricContext) && (idx >= 0);
+            int line_i = idx - kLyricContext + r;
+            bool current = (r == kLyricContext);
             const char* txt = (line_i >= 0 && line_i < n) ? s_lyrics_doc.lines[line_i].text.c_str() : "";
             set_row(r, txt, current);
         }
-        if (idx < 0)  // intro before the first timestamped line
-            set_row(kLyricContext, "\xe2\x99\xaa", false);   // ♪
     } else {
         // Static: opening lines, no highlight, no movement.
         for (int r = 0; r < kLyricRows; ++r) {

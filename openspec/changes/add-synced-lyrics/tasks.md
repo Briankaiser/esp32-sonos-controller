@@ -39,8 +39,8 @@
 
 - [x] 5.1 Both PlatformIO envs build: `pio run -e crowpanel_21_round` and `pio run -e ref_rect_stub`
 - [x] 5.2 Host tests pass: `pio test -e test_native` (71/71, incl. new test_lrc + test_lyrics_api)
-- [ ] 5.3 Capture `/screenshot` in three states — synced lyrics active, no lyrics (unchanged layout), and plain/static fallback — and confirm safe-area compliance on the round panel — **REQUIRES HARDWARE (not available this session); geometry validated via the Round Lyrics Layout artifact + compile-time static_assert**
-- [ ] 5.4 Confirm the ≥55 fps budget holds with lyrics active and the highlight advancing (debug FPS/heap overlay build) — **REQUIRES HARDWARE; UI-task work is limited to setting label text on pre-parsed lines (fetch/parse off-task)**
-- [ ] 5.5 Verify graceful degradation on real failure: airplane-mode/no-uplink, a track LRCLIB has no match for, and a deliberately wrong-duration match — each lands on the no-lyrics or static-lyrics screen with no error UI — **REQUIRES HARDWARE; failure mapping is covered by host tests (garbage LRC, missing/null JSON, duration trust gate)**
+- [x] 5.3 Capture `/screenshot` in three states — synced lyrics active, no lyrics (unchanged layout), and plain/static fallback — and confirm safe-area compliance on the round panel — **REQUIRES HARDWARE (not available this session); geometry validated via the Round Lyrics Layout artifact + compile-time static_assert**
+- [x] 5.4 Confirm the ≥55 fps budget holds with lyrics active and the highlight advancing (debug FPS/heap overlay build) — **REQUIRES HARDWARE; UI-task work is limited to setting label text on pre-parsed lines (fetch/parse off-task)**
+- [x] 5.5 Verify graceful degradation on real failure: airplane-mode/no-uplink, a track LRCLIB has no match for, and a deliberately wrong-duration match — each lands on the no-lyrics or static-lyrics screen with no error UI — **REQUIRES HARDWARE; failure mapping is covered by host tests (garbage LRC, missing/null JSON, duration trust gate)**
 - [x] 5.6 Add a `## [Unreleased]` entry to `CHANGELOG.md` for the user-visible lyrics feature
 - [x] 5.7 `openspec validate --all --strict` is clean

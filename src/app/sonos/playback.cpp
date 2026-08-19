@@ -457,21 +457,45 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
 void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
     int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
     if (desired < 0) return;
-    Serial.printf("[Playback] SetVolume %d\n", (int)desired);
-    String vol_args =
-        String("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>") +
-        (int)desired + "</DesiredVolume>";
-    String resp = sonos::soap::call(
-        speaker.ip, speaker.port,
-        "/MediaRenderer/RenderingControl/Control",
-        "urn:schemas-upnp-org:service:RenderingControl:1",
-        "SetVolume", vol_args);
-    if (resp.isEmpty()) {
-        Serial.printf("[Playback] SetVolume %d failed\n", (int)desired);
-    }
 
-    // Whole-group volume: apply to all zone group members when enabled
-    if (prefs::group_volume_mode()) {
+    static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
+    static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
+    static const char* kRCBase = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+
+    auto do_get_volume = [&](const SpeakerInfo& sp) -> int16_t {
+        String resp = sonos::soap::call(sp.ip, sp.port, kRCPath, kRCSvc,
+                                        "GetVolume", String(kRCBase));
+        if (resp.isEmpty()) return -1;
+        int v = extract_xml_text(resp, "CurrentVolume").toInt();
+        return (int16_t)(v < 0 ? 0 : v > 100 ? 100 : v);
+    };
+
+    auto do_set_volume = [&](const SpeakerInfo& sp, int16_t vol) {
+        String args = String(kRCBase) + "<DesiredVolume>" + (int)vol + "</DesiredVolume>";
+        String r = sonos::soap::call(sp.ip, sp.port, kRCPath, kRCSvc, "SetVolume", args);
+        if (r.isEmpty())
+            Serial.printf("[Playback] SetVolume %d failed for %s\n", (int)vol, sp.uuid.c_str());
+    };
+
+    // Fetch home speaker's live volume to anchor the delta. Using the live value
+    // makes each flush self-consistent: if the user turns quickly, the second
+    // flush measures the result of the first rather than recomputing from stale
+    // state. Fall back to s_state.volume only when the SOAP call fails.
+    int16_t home_cur = do_get_volume(speaker);
+    if (home_cur < 0) {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        home_cur = (int16_t)s_state.volume;
+        xSemaphoreGive(s_mutex);
+    }
+    int16_t delta = desired - home_cur;
+    Serial.printf("[Playback] SetVolume %d (delta %+d)\n", (int)desired, (int)delta);
+    do_set_volume(speaker, desired);
+
+    // Whole-group volume: apply the same relative delta to each group member so
+    // their individual levels shift together without being first equalized.
+    // member_uuids already includes the coordinator, so iterate once and skip
+    // the home speaker (handled above). delta==0 guard skips unnecessary calls.
+    if (prefs::group_volume_mode() && delta != 0) {
         SonosState st = sonos::state::snapshot();
         for (const auto& grp : st.groups) {
             bool home_in_group = (grp.coordinator_uuid == speaker.uuid);
@@ -481,22 +505,25 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
                 }
             }
             if (!home_in_group) continue;
-            auto apply_member = [&](const String& uuid) {
-                if (uuid == speaker.uuid) return;
+            for (const auto& uuid : grp.member_uuids) {
+                if (uuid == speaker.uuid) continue;
                 for (const auto& sp : st.speakers) {
                     if (sp.uuid != uuid) continue;
-                    String r = sonos::soap::call(sp.ip, sp.port,
-                        "/MediaRenderer/RenderingControl/Control",
-                        "urn:schemas-upnp-org:service:RenderingControl:1",
-                        "SetVolume", vol_args);
-                    if (r.isEmpty())
-                        Serial.printf("[Playback] SetVolume %d failed for %s\n",
-                            (int)desired, uuid.c_str());
+                    int16_t cur = do_get_volume(sp);
+                    if (cur < 0) {
+                        Serial.printf("[Playback] GetVolume failed for %s, skipping\n",
+                                      uuid.c_str());
+                        break;
+                    }
+                    int16_t target = cur + delta;
+                    if (target < 0)   target = 0;
+                    if (target > 100) target = 100;
+                    Serial.printf("[Playback] SetVolume %d (was %d, delta %+d) for %s\n",
+                                  (int)target, (int)cur, (int)delta, uuid.c_str());
+                    do_set_volume(sp, target);
                     break;
                 }
-            };
-            apply_member(grp.coordinator_uuid);
-            for (const auto& m : grp.member_uuids) apply_member(m);
+            }
             break;  // home room belongs to at most one group
         }
     }

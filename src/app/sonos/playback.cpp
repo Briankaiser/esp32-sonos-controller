@@ -454,35 +454,22 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
 
 }
 
-// ── flush_volume — send the current desired volume as a single SetVolume call ──
+// ── flush_volume — send the current desired volume ────────────────────────────
+// In group_volume_mode with a grouped home speaker: one SetRelativeGroupVolume
+// call on the coordinator applies the incremental delta to every group member
+// (including home) atomically, with no per-member GetVolume needed.
+// Solo speaker or mode off: direct SetVolume on home.
 
 void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
     int16_t desired = s_desired_volume.load(std::memory_order_relaxed);
     if (desired < 0) return;
 
-    static const char* kRCPath = "/MediaRenderer/RenderingControl/Control";
-    static const char* kRCSvc  = "urn:schemas-upnp-org:service:RenderingControl:1";
-    static const char* kRCBase = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+    static const char* kRCPath  = "/MediaRenderer/RenderingControl/Control";
+    static const char* kRCSvc   = "urn:schemas-upnp-org:service:RenderingControl:1";
+    static const char* kRCBase  = "<InstanceID>0</InstanceID><Channel>Master</Channel>";
+    static const char* kGRCPath = "/MediaRenderer/GroupRenderingControl/Control";
+    static const char* kGRCSvc  = "urn:schemas-upnp-org:service:GroupRenderingControl:1";
 
-    auto do_get_volume = [&](const SpeakerInfo& sp) -> int16_t {
-        String resp = sonos::soap::call(sp.ip, sp.port, kRCPath, kRCSvc,
-                                        "GetVolume", String(kRCBase));
-        if (resp.isEmpty()) return -1;
-        int v = extract_xml_text(resp, "CurrentVolume").toInt();
-        return (int16_t)(v < 0 ? 0 : v > 100 ? 100 : v);
-    };
-
-    auto do_set_volume = [&](const SpeakerInfo& sp, int16_t vol) {
-        String args = String(kRCBase) + "<DesiredVolume>" + (int)vol + "</DesiredVolume>";
-        String r = sonos::soap::call(sp.ip, sp.port, kRCPath, kRCSvc, "SetVolume", args);
-        if (r.isEmpty())
-            Serial.printf("[Playback] SetVolume %d failed for %s\n", (int)vol, sp.uuid.c_str());
-    };
-
-    // total_delta = how much we've asked the home speaker to change from its last
-    // confirmed value. We track s_member_delta_sent so each flush sends only the
-    // incremental portion to members — preventing double-counting when the home
-    // speaker is slow to confirm but a member already processed an earlier flush.
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     int16_t home_confirmed = (int16_t)s_state.volume;
     xSemaphoreGive(s_mutex);
@@ -491,44 +478,54 @@ void sonos::playback::flush_volume(const SpeakerInfo& speaker) {
     int16_t already_sent = s_member_delta_sent.load(std::memory_order_relaxed);
     int16_t incremental  = total_delta - already_sent;
 
-    Serial.printf("[Playback] SetVolume %d (total_delta %+d, incr %+d)\n",
-                  (int)desired, (int)total_delta, (int)incremental);
-    do_set_volume(speaker, desired);
+    Serial.printf("[Playback] flush: desired=%d home_conf=%d total=%+d sent=%+d incr=%+d\n",
+                  (int)desired, (int)home_confirmed, (int)total_delta,
+                  (int)already_sent, (int)incremental);
 
-    // Whole-group volume: apply only the INCREMENTAL delta to each group member.
-    // member_uuids already includes the coordinator; skip the home speaker.
+    bool used_group = false;
+
     if (prefs::group_volume_mode() && incremental != 0) {
         SonosState st = sonos::state::snapshot();
         for (const auto& grp : st.groups) {
+            // Find the group home belongs to.
             bool home_in_group = (grp.coordinator_uuid == speaker.uuid);
             if (!home_in_group) {
-                for (const auto& m : grp.member_uuids) {
+                for (const auto& m : grp.member_uuids)
                     if (m == speaker.uuid) { home_in_group = true; break; }
-                }
             }
             if (!home_in_group) continue;
-            for (const auto& uuid : grp.member_uuids) {
-                if (uuid == speaker.uuid) continue;
-                for (const auto& sp : st.speakers) {
-                    if (sp.uuid != uuid) continue;
-                    int16_t cur = do_get_volume(sp);
-                    if (cur < 0) {
-                        Serial.printf("[Playback] GetVolume failed for %s, skipping\n",
-                                      uuid.c_str());
-                        break;
-                    }
-                    int16_t target = cur + incremental;
-                    if (target < 0)   target = 0;
-                    if (target > 100) target = 100;
-                    Serial.printf("[Playback] SetVolume %d (was %d, incr %+d) for %s\n",
-                                  (int)target, (int)cur, (int)incremental, uuid.c_str());
-                    do_set_volume(sp, target);
-                    break;
+            // Only engage group mode if home is actually grouped with others.
+            if (grp.member_uuids.size() <= 1) break;
+            // Find the coordinator's SpeakerInfo and call SetRelativeGroupVolume.
+            for (const auto& sp : st.speakers) {
+                if (sp.uuid != grp.coordinator_uuid) continue;
+                String args = String("<InstanceID>0</InstanceID><Adjustment>")
+                            + (int)incremental + "</Adjustment>";
+                String r = sonos::soap::call(sp.ip, sp.port, kGRCPath, kGRCSvc,
+                                             "SetRelativeGroupVolume", args);
+                if (r.isEmpty()) {
+                    Serial.printf("[Playback] SetRelativeGroupVolume %+d failed\n",
+                                  (int)incremental);
+                } else {
+                    Serial.printf("[Playback] SetRelativeGroupVolume %+d via %s\n",
+                                  (int)incremental, grp.coordinator_uuid.c_str());
+                    s_member_delta_sent.store(total_delta, std::memory_order_relaxed);
+                    used_group = true;
                 }
+                break;
             }
-            s_member_delta_sent.store(total_delta, std::memory_order_relaxed);
-            break;  // home room belongs to at most one group
+            break;  // home belongs to at most one group
         }
+    }
+
+    if (!used_group) {
+        // Solo speaker, group_volume_mode off, or incremental already zero:
+        // drive home speaker directly to the desired absolute level.
+        String args = String(kRCBase) + "<DesiredVolume>" + (int)desired + "</DesiredVolume>";
+        String r = sonos::soap::call(speaker.ip, speaker.port, kRCPath, kRCSvc,
+                                     "SetVolume", args);
+        if (r.isEmpty())
+            Serial.printf("[Playback] SetVolume %d failed\n", (int)desired);
     }
 
     s_last_volume_flush_ms.store(millis(), std::memory_order_relaxed);

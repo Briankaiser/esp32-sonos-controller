@@ -450,8 +450,29 @@ void sonos::playback::drain_commands(const SpeakerInfo& speaker) {
             }
         }  // end switch
 
-        Serial.printf("[Playback] command %s\n", name);
-        String resp = sonos::soap::call(speaker.ip, speaker.port, kPath, kSvc, action, args);
+        // Transport commands (Play/Pause/Next/Previous) must target the group
+        // coordinator: a non-coordinator member rejects them with HTTP 500. When
+        // the home room is a member of another speaker's group, route to the
+        // coordinator. (Copy ip/port to value locals — the state snapshot is
+        // scoped to this block and must not outlive a borrowed pointer.)
+        String   t_ip   = speaker.ip;
+        uint16_t t_port = speaker.port;
+        {
+            PlaybackState pb_snap = snapshot();
+            if (!pb_snap.group_coordinator_uuid.isEmpty() &&
+                pb_snap.group_coordinator_uuid != speaker.uuid) {
+                SonosState st_snap = sonos::state::snapshot();
+                for (const auto& sp : st_snap.speakers) {
+                    if (sp.uuid == pb_snap.group_coordinator_uuid) {
+                        t_ip = sp.ip; t_port = sp.port;
+                        break;
+                    }
+                }
+            }
+        }
+
+        Serial.printf("[Playback] command %s -> %s\n", name, t_ip.c_str());
+        String resp = sonos::soap::call(t_ip, t_port, kPath, kSvc, action, args);
         if (resp.isEmpty()) {
             Serial.printf("[Playback] command %s failed\n", name);
         }

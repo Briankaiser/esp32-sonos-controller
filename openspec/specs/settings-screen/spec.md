@@ -1,9 +1,7 @@
 ## Purpose
 
 A standalone settings screen reachable from the now-playing screen. Provides a scrollable list of configuration entries within the round safe area. The first release includes three entries: home room selection, group management, and group volume mode.
-
 ## Requirements
-
 ### Requirement: Settings Screen Is Reachable from Now-Playing via SLOT_STATUS Gear Icon
 
 The now-playing screen SHALL display a settings entry-point control (a gear icon) in the `SLOT_STATUS` area. The gear icon SHALL be the sole content of `SLOT_STATUS`; no group status label is shown on the now-playing screen. Tapping the gear icon SHALL navigate to the settings screen. The settings screen SHALL have a back control that returns to the now-playing screen. Navigation SHALL not interrupt playback.
@@ -143,3 +141,19 @@ The settings screen SHALL include a "Group Volume" toggle entry. The toggle SHAL
 
 - **WHEN** the user sets Group Volume to "Whole group" and the device reboots
 - **THEN** the setting is restored to "Whole group" from NVS
+
+### Requirement: Settings Screen Provides a Lyrics On/Off Control
+
+The settings screen SHALL present a control to turn lyrics on or off. The control SHALL reflect the current persisted setting when the screen is shown, and toggling it SHALL update the persisted setting and take effect immediately without requiring a restart. The control SHALL be positioned within the display's safe area on round displays.
+
+#### Scenario: Control reflects the current setting
+
+- **WHEN** the settings screen is opened
+- **THEN** the lyrics control shows the current on/off state
+
+#### Scenario: Toggling the control takes effect immediately
+
+- **WHEN** the user toggles the lyrics control
+- **THEN** the persisted lyrics setting is updated
+- **AND** the change takes effect immediately — turning lyrics off removes any lyric region now, and turning them on fetches lyrics for the current track
+

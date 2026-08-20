@@ -17,10 +17,23 @@
 // the linker never garbage-collects it).
 static const char kMarker[] = "OPENSONOS_FW_VERSION:" OPENSONOS_FW_VERSION;
 
+// Board identifier, embedded the same way. Set from -DOPENSONOS_BOARD_NAME per
+// PlatformIO env (see platformio.ini); "unknown" when a build omits the flag.
+// The board is fixed config, so a plain build define reaches this TU directly —
+// unlike the git-derived version, which needs a generated header.
+#ifndef OPENSONOS_BOARD_NAME
+#define OPENSONOS_BOARD_NAME "unknown"
+#endif
+static const char kBoardMarker[] = "OPENSONOS_BOARD:" OPENSONOS_BOARD_NAME;
+
 namespace fw {
 
 const char* version() {
     return kMarker + (sizeof("OPENSONOS_FW_VERSION:") - 1);  // skip the prefix
+}
+
+const char* board() {
+    return kBoardMarker + (sizeof("OPENSONOS_BOARD:") - 1);  // skip the prefix
 }
 
 } // namespace fw

@@ -487,6 +487,7 @@ void setup() {
         WiFi.setAutoReconnect(true);
         Serial.printf("[WiFi] connected, IP: %s\n", WiFi.localIP().toString().c_str());
         Serial.printf("[boot] firmware version: %s\n", fw::version());
+        Serial.printf("[boot] board: %s\n", fw::board());
     } else {
         Serial.println("[WiFi] connection failed — web services unavailable");
     }

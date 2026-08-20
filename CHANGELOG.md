@@ -13,6 +13,15 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- Firmware images and the `GET /status` endpoint now carry a board identifier
+  (the build's target board, e.g. `crowpanel_21_round`), and the fleet updater
+  flashes an image only to controllers whose board matches it. On a network with
+  more than one board type, `tools/fleet_update.py` no longer risks pushing one
+  board's firmware to another — mismatched and unknown-board (legacy) controllers
+  are reported and skipped rather than flashed. A `--force` flag overrides board
+  matching for deliberate cross-board flashes, and an image built without a board
+  marker falls back to the previous version-only behavior with a warning.
+
 - The now-playing screen now shows time-aligned lyrics for the current track
   when they are available: the title/artist/album band shrinks to make room for
   a lyric region whose current line is highlighted and advances in real time

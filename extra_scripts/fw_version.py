@@ -72,4 +72,12 @@ os.makedirs(build_dir, exist_ok=True)
 with open(os.path.join(build_dir, "fw_version.txt"), "w") as f:
     f.write(version + "\n")
 
-print("INFO [fw_version]: firmware version = %s" % version)
+# 3. Board sidecar, symmetric with fw_version.txt. The board identifier is the
+# PlatformIO env name (compiled into the image via -DOPENSONOS_BOARD_NAME); this
+# sidecar lets the fleet updater read the target board without opening the .bin,
+# mirroring how fw_version.txt backs the embedded version marker.
+board = env.subst("$PIOENV")
+with open(os.path.join(build_dir, "fw_board.txt"), "w") as f:
+    f.write(board + "\n")
+
+print("INFO [fw_version]: firmware version = %s, board = %s" % (version, board))

@@ -171,13 +171,16 @@ def sort_key(ctrl):
 def print_list(controllers):
     name_w = max([len(c.get("home_room_name") or "(unnamed)") for c in controllers] + [9])
     ip_w = max([len(c["ip"]) for c in controllers] + [2])
+    board_w = max([len(c.get("board") or "?") for c in controllers] + [5])
     print("\nDiscovered %d controller(s):\n" % len(controllers))
-    print("  %-*s  %-*s  %s" % (name_w, "ROOM", ip_w, "IP", "FIRMWARE"))
-    print("  %-*s  %-*s  %s" % (name_w, "-" * name_w, ip_w, "-" * ip_w, "--------"))
+    print("  %-*s  %-*s  %-*s  %s" % (name_w, "ROOM", ip_w, "IP", board_w, "BOARD", "FIRMWARE"))
+    print("  %-*s  %-*s  %-*s  %s" % (name_w, "-" * name_w, ip_w, "-" * ip_w,
+                                      board_w, "-" * board_w, "--------"))
     for c in controllers:
-        print("  %-*s  %-*s  %s" % (
+        print("  %-*s  %-*s  %-*s  %s" % (
             name_w, c.get("home_room_name") or "(unnamed)",
             ip_w, c["ip"],
+            board_w, c.get("board") or "?",
             c.get("firmware_version") or "?"))
     print()
 
@@ -294,6 +297,45 @@ def default_target_version(firmware_path):
     return None
 
 
+BOARD_MARKER = b"OPENSONOS_BOARD:"  # sentinel the firmware embeds in .rodata
+
+
+def board_from_bin(firmware_path):
+    """Read the board identifier embedded in the image behind the greppable
+    marker, so a firmware.bin declares which board it targets. Returns None for a
+    legacy image built before board embedding."""
+    try:
+        with open(firmware_path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    i = data.find(BOARD_MARKER)
+    if i < 0:
+        return None
+    start = i + len(BOARD_MARKER)
+    end = data.find(b"\x00", start)
+    if end < 0:
+        return None
+    b = data[start:end].decode("ascii", "replace").strip()
+    return b or None
+
+
+def default_target_board(firmware_path):
+    """Target board: prefer the marker embedded in the .bin (self-contained),
+    then fall back to the fw_board.txt sidecar the build writes beside it. Returns
+    None when neither is present (a legacy image with no board identity)."""
+    b = board_from_bin(firmware_path)
+    if b:
+        return b
+    sidecar = os.path.join(os.path.dirname(os.path.abspath(firmware_path)), "fw_board.txt")
+    if os.path.isfile(sidecar):
+        with open(sidecar) as f:
+            b = f.read().strip()
+        if b:
+            return b
+    return None
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def parse_args(argv):
@@ -314,6 +356,10 @@ def parse_args(argv):
                    help="number of discovery scan passes to union (default 2); more "
                         "passes catch controllers that are briefly unresponsive")
     p.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p.add_argument("--force", action="store_true",
+                   help="disable board matching and update every discovered controller "
+                        "regardless of board (default: flash only controllers whose board "
+                        "matches the firmware image's target board)")
     return p.parse_args(argv)
 
 
@@ -333,6 +379,20 @@ def main(argv=None):
         return 2
     print("Target firmware version: %s (%d bytes)" % (target_version, len(firmware)))
 
+    # Determine the image's target board. board_matching is disabled when the
+    # operator forces it, or when the image carries no board identity (a legacy
+    # build) — in which case we warn and fall back to version-only selection, so
+    # the tool is never less safe than a board-unaware version.
+    target_board = default_target_board(args.firmware)
+    board_matching = bool(target_board) and not args.force
+    if args.force:
+        print("Board matching: DISABLED (--force) — every discovered controller is eligible.")
+    elif target_board:
+        print("Target board: %s (only matching controllers will be flashed)" % target_board)
+    else:
+        print("WARNING: firmware image carries no board identifier; board matching is\n"
+              "         unavailable for this image. Falling back to version-only selection.")
+
     # Determine subnets to scan.
     if args.subnet:
         subnets = [args.subnet]
@@ -350,9 +410,33 @@ def main(argv=None):
     controllers.sort(key=sort_key)
     print_list(controllers)
 
+    # Board filter (before the version split): exclude controllers the image was
+    # not built for. A mismatched board is a bricking risk; an unknown board
+    # (legacy firmware) can't be confirmed compatible, so it is also excluded.
+    # Excluded controllers are always reported with a reason — never dropped
+    # silently. --force / legacy-image fallback disable this via board_matching.
+    if board_matching:
+        eligible = [c for c in controllers if (c.get("board") or "") == target_board]
+        skipped_board = [c for c in controllers
+                         if c.get("board") and c.get("board") != target_board]
+        skipped_unknown = [c for c in controllers if not c.get("board")]
+        for c in skipped_board:
+            print("  skipped (board %s != %s): %s (%s)"
+                  % (c.get("board"), target_board,
+                     c.get("home_room_name") or "(unnamed)", c["ip"]))
+        for c in skipped_unknown:
+            print("  skipped (board unknown; needs board-aware firmware): %s (%s)"
+                  % (c.get("home_room_name") or "(unnamed)", c["ip"]))
+        if not eligible:
+            print("\nNo discovered controllers match target board %s. Nothing to do."
+                  % target_board)
+            return 0
+    else:
+        eligible = controllers
+
     # Split already-updated from those needing a flash.
-    pending = [c for c in controllers if (c.get("firmware_version") or "") != target_version]
-    already = [c for c in controllers if (c.get("firmware_version") or "") == target_version]
+    pending = [c for c in eligible if (c.get("firmware_version") or "") != target_version]
+    already = [c for c in eligible if (c.get("firmware_version") or "") == target_version]
     for c in already:
         print("  already up to date: %s (%s)" % (c.get("home_room_name") or "(unnamed)", c["ip"]))
     if not pending:

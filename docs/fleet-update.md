@@ -42,11 +42,18 @@ and:
   self-describing;
 - writes it to a sidecar `fw_version.txt` next to the `.bin`.
 
-The built image and its version marker are at:
+It does the same for the **board identifier** (the PlatformIO env name, e.g.
+`crowpanel_21_round`): compiled in (reported by `/status` as `board`, logged on
+boot), embedded behind an `OPENSONOS_BOARD:` marker, and written to a
+`fw_board.txt` sidecar. This is what lets the updater flash a given image only to
+devices of the board it was built for — see [Board targeting](#board-targeting).
+
+The built image and its markers are at:
 
 ```
 .pio/build/crowpanel_21_round/firmware.bin      # flash this
 .pio/build/crowpanel_21_round/fw_version.txt     # the version, for reference
+.pio/build/crowpanel_21_round/fw_board.txt       # the target board, for reference
 ```
 
 > The version must **differ** from what the controllers are currently running,
@@ -101,19 +108,61 @@ python3 tools/fleet_update.py FIRMWARE [options]
 | `--timeout S` | `120` | Seconds to wait for a device to return on the new version before treating it as failed. |
 | `--dry-run` | off | Scan and list what would update, then exit without flashing. |
 | `--yes` | off | Skip the interactive confirmation (for unattended/scripted runs). |
+| `--force` | off | Disable board matching — update every discovered controller regardless of board. See [Board targeting](#board-targeting). |
 
 Environment: `OPENSONOS_OTA_PASSWORD` — the OTA password (prompted if unset).
+
+---
+
+## Board targeting
+
+Different controller boards (e.g. `crowpanel_21_round` vs `ref_rect_stub`) need
+different firmware images — wrong display driver, pin map, and flash layout.
+Flashing one board's image onto another can brick it. Because every controller
+advertises the same `"device": "opensonos-controller"` identity, the updater
+**must not** assume a single image fits every device it finds on the LAN.
+
+Each image and each running device is therefore tagged with a **board
+identifier** (the PlatformIO env name). By default the updater:
+
+- reads the **target board** from the `.bin`'s embedded marker (falling back to
+  the `fw_board.txt` sidecar), and
+- flashes **only** controllers whose `/status` reports the **same** board.
+
+Controllers that don't match are **excluded and reported**, never silently
+skipped:
+
+- **board mismatch** — a different board than the image targets;
+- **board unknown** — a controller running older firmware that predates board
+  reporting (no `board` field). It is *not* flashed, because compatibility can't
+  be confirmed. Flash it once with a matching image (over USB, or via `--force`
+  if you're certain of the board) to make it board-aware, after which it filters
+  correctly.
+
+Overrides and fallbacks:
+
+- **`--force`** disables board matching entirely and makes every discovered
+  controller eligible — for the deliberate case where you accept responsibility
+  for the pairing.
+- If the **image itself carries no board marker** (a legacy build), the updater
+  can't know the target board, so it **warns** and falls back to version-only
+  selection — never less safe than a board-unaware tool.
 
 ---
 
 ## What the tool does, step by step
 
 1. **Determine the target version** from the `.bin` (embedded marker → sidecar →
-   `--version`).
+   `--version`), and the **target board** (embedded marker → `fw_board.txt`
+   sidecar).
 2. **Discover** controllers: scan the subnet (`--passes` times, unioned), keeping
-   only hosts whose `/status` reports `"device": "opensonos-controller"`.
-3. **List** them, ordered by home room name then IP, with current firmware.
-   Controllers already on the target version are reported and skipped.
+   only hosts whose `/status` reports `"device": "opensonos-controller"`. Each
+   controller's `board` is recorded from its `/status`.
+3. **List** them, ordered by home room name then IP, with board and current
+   firmware. Then **filter by board** (unless `--force`, or the image has no
+   board marker): controllers whose board doesn't match — or that report no board
+   — are reported as skipped and excluded. Of the rest, controllers already on
+   the target version are reported and skipped.
 4. **Confirm** — interactively, or via `--yes`. A bare non-interactive run with no
    `--yes` refuses to flash.
 5. **Update each pending controller, one at a time:**
@@ -137,6 +186,10 @@ Environment: `OPENSONOS_OTA_PASSWORD` — the OTA password (prompted if unset).
 - **Abort-on-failure.** A bad build can't roll across the whole fleet; the run
   stops at the first device that doesn't return.
 - **Sequential only.** Never flashes two controllers at once.
+- **Board-matched by default.** An image is flashed only to controllers of the
+  board it was built for; mismatched and unknown-board devices are excluded and
+  reported, so one board's firmware can't reach another on the same LAN.
+  `--force` overrides for deliberate cross-board flashes.
 - **Skip already-updated.** Re-running is safe and idempotent — controllers on
   the target version are left alone.
 - **No silent misses.** Multi-pass discovery means a controller that's briefly
@@ -152,16 +205,17 @@ Environment: `OPENSONOS_OTA_PASSWORD` — the OTA password (prompted if unset).
 ```
 $ python3 tools/fleet_update.py .pio/build/crowpanel_21_round/firmware.bin --yes
 Target firmware version: 8d76ecc (1733872 bytes)
+Target board: crowpanel_21_round (only matching controllers will be flashed)
 Scanning 192.168.4.0/22 (1022 hosts)...
 Re-scanning to catch any controller missed on the previous pass...
 Scanning 192.168.4.0/22 (1022 hosts)...
 
 Discovered 2 controller(s):
 
-  ROOM            IP            FIRMWARE
-  --------------  ------------  --------
-  Brian's Office  192.168.5.25  37e1d7b
-  Kitchen         192.168.5.38  37e1d7b
+  ROOM            IP            BOARD               FIRMWARE
+  --------------  ------------  ------------------  --------
+  Brian's Office  192.168.5.25  crowpanel_21_round  37e1d7b
+  Kitchen         192.168.5.38  crowpanel_21_round  37e1d7b
 
 → Updating Brian's Office (192.168.5.25): uploading 1733872 bytes...
     upload: HTTP 200 OK
@@ -198,9 +252,11 @@ The tool's logic has a stdlib unit-test suite (mock controller, no hardware):
 python3 tools/test_fleet_update.py
 ```
 
-Covers version-marker extraction, target-version resolution, controller identity
-matching, multi-pass discovery union, verified-completion polling, and the
-per-device update orchestration (accept / wrong-password reject / timeout abort).
+Covers version- and board-marker extraction, target-version/board resolution,
+controller identity and board matching, board filtering (mismatch / unknown /
+`--force` / legacy-image fallback), multi-pass discovery union,
+verified-completion polling, and the per-device update orchestration (accept /
+wrong-password reject / timeout abort).
 
 ---
 
@@ -212,7 +268,7 @@ Behavior is defined in OpenSpec:
   listing, confirmation, authenticated OTA, verified sequential completion,
   abort-on-failure).
 - `openspec/specs/web-services/spec.md` — the device `GET /status` endpoint and
-  the discoverable firmware version this tool depends on.
+  the discoverable firmware version and board identifier this tool depends on.
 
 This runbook is operator documentation; the specs are the source of truth for
 behavior.

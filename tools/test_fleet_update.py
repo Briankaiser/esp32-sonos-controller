@@ -21,13 +21,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleet_update as fu
 
 MARKER = b"OPENSONOS_FW_VERSION:"
+BOARD_MARKER = b"OPENSONOS_BOARD:"
 
 
-def make_bin(version, size=64):
-    """A fake firmware image carrying the embedded version marker in its bytes."""
+def make_bin(version, size=128, board=None):
+    """A fake firmware image carrying the embedded version marker in its bytes,
+    and optionally the board marker (parallel to how the real image embeds both)."""
     blob = bytearray(b"\x00" * size)
     tag = MARKER + version.encode() + b"\x00"
     blob[8:8 + len(tag)] = tag
+    if board is not None:
+        btag = BOARD_MARKER + board.encode() + b"\x00"
+        off = 8 + len(tag) + 4
+        blob[off:off + len(btag)] = btag
     return bytes(blob)
 
 
@@ -38,9 +44,10 @@ class MockController:
     (None = never flips, to exercise the verification timeout / abort path)."""
 
     def __init__(self, room="Kitchen", version="old", flip_to="new", password="pw",
-                 device="opensonos-controller"):
+                 device="opensonos-controller", board="crowpanel_21_round"):
         self.room, self.version, self.flip_to = room, version, flip_to
         self.password, self.device = password, device
+        self.board = board
         self.uploads = 0
 
     def start(self):
@@ -57,11 +64,14 @@ class MockController:
 
             def do_GET(self):
                 if self.path == "/status":
-                    self._send(200, json.dumps({
+                    status = {
                         "device": ctrl.device,
                         "firmware_version": ctrl.version,
                         "home_room_name": ctrl.room,
-                    }).encode())
+                    }
+                    if ctrl.board is not None:
+                        status["board"] = ctrl.board
+                    self._send(200, json.dumps(status).encode())
                 else:
                     self._send(404)
 
@@ -137,6 +147,41 @@ class FleetUpdateTests(unittest.TestCase):
             f.write("from-sidecar\n")
         self.assertEqual(fu.default_target_version(binp), "from-sidecar")
 
+    # ── board marker / target resolution ────────────────────────────────
+
+    def test_board_from_bin_extracts_marker(self):
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(make_bin("v1", board="crowpanel_21_round"))
+            path = f.name
+        self.addCleanup(os.unlink, path)
+        self.assertEqual(fu.board_from_bin(path), "crowpanel_21_round")
+
+    def test_board_from_bin_absent_marker(self):
+        # A legacy image with a version marker but no board marker → None.
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(make_bin("v1"))  # no board
+            path = f.name
+        self.addCleanup(os.unlink, path)
+        self.assertIsNone(fu.board_from_bin(path))
+
+    def test_default_target_board_prefers_marker_over_sidecar(self):
+        d = tempfile.mkdtemp()
+        binp = os.path.join(d, "firmware.bin")
+        with open(binp, "wb") as f:
+            f.write(make_bin("v1", board="marker_board"))
+        with open(os.path.join(d, "fw_board.txt"), "w") as f:
+            f.write("sidecar_board\n")
+        self.assertEqual(fu.default_target_board(binp), "marker_board")
+
+    def test_default_target_board_falls_back_to_sidecar(self):
+        d = tempfile.mkdtemp()
+        binp = os.path.join(d, "firmware.bin")
+        with open(binp, "wb") as f:
+            f.write(make_bin("v1"))  # no board marker
+        with open(os.path.join(d, "fw_board.txt"), "w") as f:
+            f.write("sidecar_board\n")
+        self.assertEqual(fu.default_target_board(binp), "sidecar_board")
+
     # ── discovery / identity marker ─────────────────────────────────────
 
     def test_probe_matches_controller(self):
@@ -144,6 +189,11 @@ class FleetUpdateTests(unittest.TestCase):
         self.assertIsNotNone(info)
         self.assertEqual(info["ip"], "127.0.0.1")  # reached address, not self-reported
         self.assertEqual(info["home_room_name"], "Kitchen")
+
+    def test_probe_records_board(self):
+        self.ctrl.board = "crowpanel_21_round"
+        info = fu.probe_status("127.0.0.1", timeout=2)
+        self.assertEqual(info["board"], "crowpanel_21_round")
 
     def test_probe_ignores_non_controller(self):
         self.ctrl.device = "some-other-device"
@@ -170,9 +220,9 @@ class FleetUpdateTests(unittest.TestCase):
 
     # ── dry-run ─────────────────────────────────────────────────────────
 
-    def _make_firmware(self, version):
+    def _make_firmware(self, version, board=None):
         f = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-        f.write(make_bin(version))
+        f.write(make_bin(version, board=board))
         f.close()
         self.addCleanup(os.unlink, f.name)
         return f.name
@@ -200,6 +250,66 @@ class FleetUpdateTests(unittest.TestCase):
             fu.discover = orig
         self.assertEqual(rc, 0)
         self.assertEqual(self.ctrl.uploads, 0)
+
+    # ── board targeting ─────────────────────────────────────────────────
+
+    def _dry_run(self, binp, controllers, extra_args=()):
+        orig = fu.discover
+        fu.discover = lambda subnets, passes=2: [dict(c) for c in controllers]
+        try:
+            return fu.main(["--subnet", "127.0.0.1/32", "--yes", "--dry-run",
+                            *extra_args, binp])
+        finally:
+            fu.discover = orig
+
+    def test_board_mismatch_excluded(self):
+        # Image targets crowpanel; the only controller is a ref_rect_stub →
+        # excluded, nothing to do (exit 0), no upload.
+        binp = self._make_firmware("new", board="crowpanel_21_round")
+        rc = self._dry_run(binp, [
+            {"ip": "127.0.0.1", "home_room_name": "Garage",
+             "board": "ref_rect_stub", "firmware_version": "old"},
+        ])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.ctrl.uploads, 0)
+
+    def test_board_unknown_excluded(self):
+        # A controller that reports no board can't be confirmed compatible →
+        # excluded when the image declares a target board.
+        binp = self._make_firmware("new", board="crowpanel_21_round")
+        rc = self._dry_run(binp, [
+            {"ip": "127.0.0.1", "home_room_name": "Attic",
+             "firmware_version": "old"},  # no 'board' key
+        ])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.ctrl.uploads, 0)
+
+    def test_matching_board_is_pending(self):
+        binp = self._make_firmware("new", board="crowpanel_21_round")
+        rc = self._dry_run(binp, [
+            {"ip": "127.0.0.1", "home_room_name": "Kitchen",
+             "board": "crowpanel_21_round", "firmware_version": "old"},
+        ])
+        self.assertEqual(rc, 1)  # a pending update exists
+
+    def test_force_includes_mismatched_board(self):
+        # --force disables board matching: a mismatched board becomes pending.
+        binp = self._make_firmware("new", board="crowpanel_21_round")
+        rc = self._dry_run(binp, [
+            {"ip": "127.0.0.1", "home_room_name": "Garage",
+             "board": "ref_rect_stub", "firmware_version": "old"},
+        ], extra_args=("--force",))
+        self.assertEqual(rc, 1)
+
+    def test_legacy_image_no_board_marker_skips_filtering(self):
+        # Image without a board marker → no board filtering; a mismatched-board
+        # controller is still selected by version alone.
+        binp = self._make_firmware("new")  # no board marker
+        rc = self._dry_run(binp, [
+            {"ip": "127.0.0.1", "home_room_name": "Garage",
+             "board": "ref_rect_stub", "firmware_version": "old"},
+        ])
+        self.assertEqual(rc, 1)
 
     # ── verified completion ─────────────────────────────────────────────
 

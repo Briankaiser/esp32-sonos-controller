@@ -33,6 +33,7 @@ static void handle_get_status() {
     String json = "{\n";
     json += "  \"device\": \"opensonos-controller\",\n";
     json += "  \"firmware_version\": " + json_str(fw::version()) + ",\n";
+    json += "  \"board\": " + json_str(fw::board()) + ",\n";
     json += "  \"wifi_connected\": " + String(connected ? "true" : "false") + ",\n";
     json += "  \"ip\": " + json_str(ip) + ",\n";
     json += "  \"wifi_ssid\": " + json_str(ssid) + ",\n";

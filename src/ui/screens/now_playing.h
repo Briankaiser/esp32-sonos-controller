@@ -7,7 +7,12 @@
 
 namespace screens {
     lv_obj_t* now_playing_create();
-    void      now_playing_update(const sonos::PlaybackState& state);
+    // Applies playback state to the screen. Returns false WITHOUT painting the
+    // title/artist/album/progress when a modal overlay covers the screen, so the
+    // caller can defer consuming the state version until the labels are actually
+    // repainted (otherwise a version bump that lands while covered is lost and
+    // the text goes stale — album art, applied every frame, would still update).
+    bool      now_playing_update(const sonos::PlaybackState& state);
     void      now_playing_refresh_art();  // apply latest decoded art; call every UI frame (UI task only)
     void      now_playing_refresh_lyrics();  // apply latest fetched lyrics; call every UI frame (UI task only)
     void      now_playing_init_art();

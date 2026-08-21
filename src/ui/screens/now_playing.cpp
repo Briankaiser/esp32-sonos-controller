@@ -679,7 +679,7 @@ void screens::now_playing_init_art() {
 
 // ── now_playing_update ────────────────────────────────────────────────────────
 
-void screens::now_playing_update(const sonos::PlaybackState& state) {
+bool screens::now_playing_update(const sonos::PlaybackState& state) {
     // Reset idle timer while playing; wake from idle when playback resumes
     if (state.transport_state == sonos::TransportState::Playing) {
         s_idle_timer_start = millis();
@@ -728,7 +728,13 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
                 break;
             }
         }
-        if (covered) return;
+        // Covered by a modal (settings, room picker, favorites, …): don't paint
+        // the labels now, and report "not applied" so the caller keeps this
+        // state's version pending. The moment the overlay closes, the caller
+        // re-invokes with the latest state and the text catches up. Without this
+        // (edge-triggered on version), a bump that lands while covered would be
+        // consumed and silently dropped — the stale-text-on-room-change bug.
+        if (covered) return false;
     }
 
     if (!s_transport_restore_tmr)  // don't cut short a pending dim
@@ -769,6 +775,7 @@ void screens::now_playing_update(const sonos::PlaybackState& state) {
     // decoded frame appears within a frame rather than waiting for the next
     // pb.version bump (which, under eventing, may be tens of seconds away).
     now_playing_refresh_art();
+    return true;  // labels painted — caller may consume this state version
 }
 
 // ── now_playing_refresh_art ─────────────────────────────────────────────────

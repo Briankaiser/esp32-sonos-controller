@@ -412,8 +412,13 @@ static void ui_task(void* /*arg*/) {
         {
             sonos::PlaybackState pb = sonos::playback::snapshot();
             if (pb.version != s_playback_version) {
-                s_playback_version = pb.version;
-                screens::now_playing_update(pb);
+                // Only mark this version consumed if the screen actually painted.
+                // While a modal overlay covers now-playing, now_playing_update()
+                // returns false without touching the labels; leaving the version
+                // pending makes the text catch up the instant the overlay closes,
+                // instead of the bump being lost (stale text after a room change).
+                if (screens::now_playing_update(pb))
+                    s_playback_version = pb.version;
             }
         }
 

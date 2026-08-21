@@ -11,6 +11,18 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ## [Unreleased]
 
+### Fixed
+
+- Changing the home room while eventing was active could leave the now-playing
+  title, artist, and album showing the previous room's track (album art still
+  updated to the new room, so the two disagreed). The text is applied only when
+  the playback-state version changes and was skipped while the settings/room-
+  picker overlay covered the screen — but the version was still marked consumed,
+  so the update was lost and, under push eventing, no fresh version bump followed
+  for a long time. The screen now defers consuming a state version until the
+  labels are actually painted, so the text catches up the instant the overlay
+  closes.
+
 ### Added
 
 - The now-playing screen now shows time-aligned lyrics for the current track

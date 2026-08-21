@@ -5,6 +5,7 @@
 #include "../../app/sonos/playback.h"
 #include "../../app/sonos/eventing.h"
 #include "../../app/sonos/state.h"
+#include "../../app/sonos/discovery.h"
 #include "../../app/lyrics/service.h"
 #include "../../services/prefs.h"
 #include "../theme/accent.h"
@@ -228,6 +229,11 @@ static void show_room_picker(lv_event_t*) {
                     // new speaker; healthy() goes false, so sonos_task falls back
                     // to polling and fetches fresh state from the new room.
                     sonos::eventing::request_reset();
+                    // Re-derive the group coordinator for the new home room: the
+                    // stored coordinator UUID still points at the previous room's
+                    // group until a topology refresh, which would otherwise mislead
+                    // poll/art/eventing targeting until the next discovery cycle.
+                    sonos::discovery::request_topology_refresh();
                     sonos::playback::notify_poll_task();
                     if (s_room_btn) {
                         lv_obj_t* lbl = lv_obj_get_child(s_room_btn, 0);

@@ -131,6 +131,10 @@ The JSON object SHALL include at least the following fields:
   marker that lets a network scan distinguish this device from any other HTTP
   server on port 80.
 - `firmware_version`: the running firmware version string (never empty).
+- `board`: the running board identifier string (never empty), naming the
+  hardware profile the image was built for. A tool comparing this against a
+  firmware image's target board can tell whether that image is compatible with
+  this device.
 - `wifi_connected`: boolean, true when the device is associated with the home
   WiFi network.
 - `ip`: the device's current IP address as a string, or an empty string when
@@ -158,9 +162,10 @@ externally reachable state of this endpoint.
 - **THEN** the device responds with HTTP 200
 - **AND** the `Content-Type` header is `application/json`
 - **AND** the body is a JSON object containing `device`, `firmware_version`,
-  `wifi_connected`, `ip`, `wifi_ssid`, `speaker_count`, `home_room_name`,
-  `home_room_uuid`, and `state_source`
+  `board`, `wifi_connected`, `ip`, `wifi_ssid`, `speaker_count`,
+  `home_room_name`, `home_room_uuid`, and `state_source`
 - **AND** the `device` field equals `"opensonos-controller"`
+- **AND** the `board` field is a non-empty string
 
 #### Scenario: Status handler performs no network I/O
 
@@ -186,4 +191,28 @@ externally reachable state of this endpoint.
 - **AND** the `home_room_name` field is an empty string
 - **AND** the `home_room_uuid` field reflects the configured UUID, or an empty
   string when none is configured
+
+### Requirement: Running Board Identifier Is Discoverable
+
+The device SHALL be built with a board identifier string that names the hardware
+profile the image was built for (the build's board/target identity, e.g.
+`crowpanel_21_round`). On boot, after establishing the WiFi connection, the
+device SHALL log this board identifier to the serial console. The board
+identifier SHALL also be reported by the status endpoint (see below), so an
+operator or tool can tell which board an image is running on — and therefore
+which image is compatible with a given device — without a USB connection. The
+board identifier SHALL be a non-empty, stable string for a given build target
+and SHALL be identical across firmware versions built for the same board.
+
+#### Scenario: Board identifier is logged on boot
+
+- **WHEN** the device boots and connects to the home WiFi network
+- **THEN** the device prints its board identifier string to the serial console
+
+#### Scenario: Board identifier is stable across versions
+
+- **WHEN** two firmware versions are built for the same board target
+- **THEN** both report the same board identifier
+- **AND** the identifier distinguishes them from an image built for a different
+  board target
 

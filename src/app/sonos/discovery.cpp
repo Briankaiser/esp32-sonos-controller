@@ -9,6 +9,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiUdp.h>
+#include <atomic>
 #include <vector>
 
 // XML/string helpers shared with playback and eventing (see xml_util.h)
@@ -417,15 +418,34 @@ void sonos::discovery::ingest_topology_xml(const String& decoded_zgs) {
     }
 }
 
+// Set by a home-room change (UI/HTTP task), consumed by sonos_task (core 0) so
+// the SOAP topology fetch runs off the interface task. Coalesces: multiple
+// requests before the task services one collapse into a single refresh.
+static std::atomic<bool> s_topology_refresh_requested{false};
+
+void sonos::discovery::request_topology_refresh() {
+    s_topology_refresh_requested.store(true, std::memory_order_relaxed);
+}
+
+bool sonos::discovery::take_topology_refresh() {
+    return s_topology_refresh_requested.exchange(false, std::memory_order_relaxed);
+}
+
 void sonos::discovery::refresh_topology_via_soap() {
     SonosState st = sonos::state::snapshot();
     if (st.home_room_idx < 0 || st.home_room_idx >= (int)st.speakers.size()) return;
     std::vector<ZoneGroup> groups = fetch_topology(st.speakers[st.home_room_idx], st.speakers);
     if (groups.empty()) return;
-    if (groups_equal(groups, st.groups)) return;
-    Serial.printf("[Sonos] topology updated: %u group(s)\n", (unsigned)groups.size());
-    st.groups = groups;
-    sonos::state::update(st);
+    if (!groups_equal(groups, st.groups)) {
+        Serial.printf("[Sonos] topology updated: %u group(s)\n", (unsigned)groups.size());
+        st.groups = groups;
+        sonos::state::update(st);
+    }
+    // Always re-derive the home-room coordinator, even when the group topology is
+    // unchanged: the home room itself may have changed (room switch), so the
+    // coordinator this device polls/subscribes/fetches-art from must be recomputed
+    // regardless. Skipping this on groups_equal left the coordinator UUID pointing
+    // at the previous home room's group until the next full discovery cycle.
     publish_group_uuid(groups, st.speakers[st.home_room_idx].uuid);
 }
 

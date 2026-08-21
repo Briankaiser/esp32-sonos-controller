@@ -22,6 +22,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
   for a long time. The screen now defers consuming a state version until the
   labels are actually painted, so the text catches up the instant the overlay
   closes.
+- Changing the home room now re-derives the new room's group coordinator
+  immediately (via an out-of-cycle topology refresh) instead of leaving the
+  device polling, subscribing, and fetching album art from the *previous*
+  room's coordinator until the next discovery cycle (up to 10 minutes). This
+  mainly affects switching to or from a grouped room.
 
 ### Added
 

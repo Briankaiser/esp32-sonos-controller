@@ -277,6 +277,12 @@ static void sonos_task(void* /*arg*/) {
                 // notifies us, so we wake immediately when a command arrives instead
                 // of waiting the full poll interval.
                 ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(sonos::playback::poll_interval_ms()));
+                // A home-room change requests an out-of-cycle topology refresh so
+                // the coordinator this device polls/subscribes/fetches-art from is
+                // re-derived for the NEW room now, not up to kDiscoveryIntervalMs
+                // later. Runs here on core 0 (SOAP I/O off the interface task).
+                if (sonos::discovery::take_topology_refresh())
+                    sonos::discovery::refresh_topology_via_soap();
                 // Re-snapshot so a freshly resolved home room is picked up mid-cycle
                 st = sonos::state::snapshot();
             } else {

@@ -30,6 +30,13 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- The setup captive portal now shows a WiFi network picker instead of a
+  free-text SSID field: visible networks are scanned when the page loads,
+  deduplicated by SSID (mesh systems show one entry at the strongest signal),
+  and displayed with a signal-strength indicator. A fallback text field
+  remains for hidden networks. Each device broadcasts a unique setup AP name
+  (`OpenSonos-Setup-XXXX`) so concurrent setups are distinguishable.
+
 - Firmware images and the `GET /status` endpoint now carry a board identifier
   (the build's target board, e.g. `crowpanel_21_round`), and the fleet updater
   flashes an image only to controllers whose board matches it. On a network with

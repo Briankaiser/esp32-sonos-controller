@@ -7,8 +7,10 @@
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <lvgl.h>
+#include <algorithm>
+#include <vector>
 
-static const char kSetupPage[] = R"(<!doctype html>
+static const char kSetupPage[] = R"HTML(<!doctype html>
 <html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>OpenSonos Setup</title>
@@ -16,22 +18,84 @@ static const char kSetupPage[] = R"(<!doctype html>
 body{font-family:sans-serif;max-width:460px;margin:2em auto;padding:0 1em;background:#f5f5f5}
 h1{font-size:1.3em}
 label{display:block;margin-top:1em;font-size:.9em;color:#555}
-input{width:100%;box-sizing:border-box;padding:.5em;font-size:1em;border:1px solid #ccc;border-radius:4px}
-.hint{font-size:.78em;color:#888;margin-top:.2em}
+input,select{width:100%;box-sizing:border-box;padding:.5em;font-size:1em;border:1px solid #ccc;border-radius:4px;background:#fff}
+.hint{font-size:.78em;color:#888;margin-top:.3em}
+.hidden-row{margin-top:.6em}
 button{margin-top:1.5em;width:100%;padding:.7em;font-size:1em;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer}
+#scan-status{font-size:.82em;color:#888;margin-top:.3em}
 </style>
 </head><body>
 <h1>OpenSonos Setup</h1>
-<form method=POST action=/save>
-<label>WiFi Network (SSID) <span style=color:red>*</span></label>
-<input name=ssid type=text autocomplete=off required>
-<label>WiFi Password <span style=color:red>*</span></label>
-<input name=pass type=password autocomplete=current-password required>
+<form method=POST action=/save id=f>
+<input type=hidden name=ssid id=ssid-val>
+<label>WiFi Network <span style=color:red>*</span></label>
+<select id=ssid-pick><option value=''>Scanning...</option></select>
+<div class=hint id=scan-status>Looking for networks&hellip;</div>
+<div class=hidden-row>
+<label style="margin-top:.5em;font-size:.82em;color:#888">
+<input type=checkbox id=manual-cb onchange="toggleManual(this.checked)" style="width:auto;margin-right:.3em">
+My network isn&rsquo;t listed (hidden network)
+</label>
+<input id=ssid-manual type=text placeholder="Enter network name" autocomplete=off
+       style="display:none;margin-top:.4em" oninput="syncSsid()">
+</div>
+<label style="margin-top:1.2em">WiFi Password <span style=color:red>*</span></label>
+<input name=pass type=text autocomplete=off required style="-webkit-text-security:disc;text-security:disc">
 <label>OTA Password</label>
 <input name=ota type=password autocomplete=off>
 <button type=submit>Save &amp; Reboot</button>
 </form>
-</body></html>)";
+<script>
+var nets=[];
+function bars(rssi){
+  var s=rssi<=-90?0:rssi<=-75?1:rssi<=-60?2:rssi<=-45?3:4;
+  return ['▁___','▁▂__','▁▂▃_','▁▂▃▄','▁▂▃▄'][s];
+}
+function syncSsid(){
+  var cb=document.getElementById('manual-cb');
+  var val=cb.checked
+    ?document.getElementById('ssid-manual').value.trim()
+    :document.getElementById('ssid-pick').value;
+  document.getElementById('ssid-val').value=val;
+}
+function toggleManual(on){
+  var m=document.getElementById('ssid-manual');
+  var p=document.getElementById('ssid-pick');
+  m.style.display=on?'block':'none';
+  p.disabled=on;
+  syncSsid();
+}
+function populate(list){
+  var sel=document.getElementById('ssid-pick');
+  sel.innerHTML='';
+  if(!list.length){
+    sel.innerHTML='<option value="">No networks found</option>';
+    document.getElementById('scan-status').textContent='No networks found. Use the manual entry below.';
+    document.getElementById('manual-cb').checked=true;
+    toggleManual(true);
+    return;
+  }
+  list.forEach(function(n){
+    var o=document.createElement('option');
+    o.value=n.ssid;
+    o.textContent=bars(n.rssi)+' '+n.ssid;
+    sel.appendChild(o);
+  });
+  document.getElementById('scan-status').textContent=list.length+' network'+(list.length!==1?'s':'')+' found';
+  syncSsid();
+}
+sel=document.getElementById('ssid-pick');
+sel.addEventListener('change',syncSsid);
+document.getElementById('f').addEventListener('submit',function(e){
+  if(!document.getElementById('ssid-val').value.trim()){e.preventDefault();alert('Please select or enter a WiFi network name.');}
+});
+fetch('/scan').then(function(r){return r.json();}).then(populate).catch(function(){
+  document.getElementById('scan-status').textContent='Scan failed. Enter network name manually.';
+  document.getElementById('manual-cb').checked=true;
+  toggleManual(true);
+});
+</script>
+</body></html>)HTML";
 
 static const char kConfirmPage[] = R"(<!doctype html>
 <html><head><meta charset=utf-8>
@@ -80,8 +144,12 @@ void portal::run() {
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_pos(title, lv_pct(20), lv_pct(33));
 
+    char ap_ssid[28];
+    snprintf(ap_ssid, sizeof(ap_ssid), "OpenSonos-Setup-%04X",
+             (unsigned)((ESP.getEfuseMac() >> 32) & 0xFFFF));
+
     lv_obj_t* body = lv_label_create(scr);
-    lv_label_set_text(body, "Please connect to Sonos-Controller-Setup to start setup.");
+    lv_label_set_text_fmt(body, "Connect to %s to start setup.", ap_ssid);
     lv_obj_set_width(body, lv_pct(60));
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_color(body, lv_color_white(), LV_PART_MAIN);
@@ -92,7 +160,7 @@ void portal::run() {
     lv_timer_handler();  // flush the first frame before backlight comes on
     bsp::backlight(255);
 
-    WiFi.softAP("Sonos-Controller-Setup");
+    WiFi.softAP(ap_ssid);
     delay(100);
 
     // Redirect all DNS queries to the portal IP
@@ -100,6 +168,44 @@ void portal::run() {
 
     s_server.on("/", HTTP_GET, []() {
         s_server.send(200, "text/html", kSetupPage);
+    });
+
+    s_server.on("/scan", HTTP_GET, []() {
+        // Switch to AP+STA so the STA radio can scan while the AP stays up.
+        WiFi.mode(WIFI_AP_STA);
+        int n = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/false);
+
+        // Deduplicate by SSID: keep highest RSSI per network (handles mesh APs).
+        struct Net { String ssid; int32_t rssi; };
+        std::vector<Net> nets;
+        for (int i = 0; i < n && i < 30; i++) {
+            String s = WiFi.SSID(i);
+            if (s.isEmpty()) continue;
+            int32_t r = WiFi.RSSI(i);
+            bool found = false;
+            for (auto& net : nets) {
+                if (net.ssid == s) { if (r > net.rssi) net.rssi = r; found = true; break; }
+            }
+            if (!found) nets.push_back({s, r});
+        }
+        WiFi.scanDelete();
+        // Sort strongest first
+        std::sort(nets.begin(), nets.end(),
+                  [](const Net& a, const Net& b){ return a.rssi > b.rssi; });
+
+        String json = "[";
+        for (size_t i = 0; i < nets.size(); i++) {
+            if (i) json += ",";
+            String escaped = nets[i].ssid;
+            escaped.replace("\\", "\\\\");
+            escaped.replace("\"", "\\\"");
+            json += "{\"ssid\":\"" + escaped + "\",\"rssi\":" + nets[i].rssi + "}";
+        }
+        json += "]";
+        s_server.send(200, "application/json", json);
+
+        // Restore AP-only mode now that the scan is done.
+        WiFi.mode(WIFI_AP);
     });
 
     s_server.on("/save", HTTP_POST, []() {

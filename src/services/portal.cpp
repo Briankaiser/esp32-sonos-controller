@@ -40,7 +40,7 @@ My network isn&rsquo;t listed (hidden network)
        style="display:none;margin-top:.4em" oninput="syncSsid()">
 </div>
 <label style="margin-top:1.2em">WiFi Password <span style=color:red>*</span></label>
-<input name=pass type=password autocomplete=current-password required>
+<input name=pass type=password autocomplete=off required>
 <label>OTA Password</label>
 <input name=ota type=password autocomplete=off>
 <button type=submit>Save &amp; Reboot</button>
@@ -144,8 +144,12 @@ void portal::run() {
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_pos(title, lv_pct(20), lv_pct(33));
 
+    char ap_ssid[28];
+    snprintf(ap_ssid, sizeof(ap_ssid), "OpenSonos-Setup-%04X",
+             (unsigned)((ESP.getEfuseMac() >> 32) & 0xFFFF));
+
     lv_obj_t* body = lv_label_create(scr);
-    lv_label_set_text(body, "Please connect to Sonos-Controller-Setup to start setup.");
+    lv_label_set_text_fmt(body, "Connect to %s to start setup.", ap_ssid);
     lv_obj_set_width(body, lv_pct(60));
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_color(body, lv_color_white(), LV_PART_MAIN);
@@ -156,7 +160,7 @@ void portal::run() {
     lv_timer_handler();  // flush the first frame before backlight comes on
     bsp::backlight(255);
 
-    WiFi.softAP("Sonos-Controller-Setup");
+    WiFi.softAP(ap_ssid);
     delay(100);
 
     // Redirect all DNS queries to the portal IP

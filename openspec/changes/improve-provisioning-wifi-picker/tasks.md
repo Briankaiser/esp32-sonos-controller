@@ -15,6 +15,6 @@
 ## 3. Verification
 
 - [x] 3.1 Build both PlatformIO envs (`crowpanel_21_round`, `ref_rect_stub`) — `portal.cpp` is compiled into both
-- [ ] 3.2 Flash and walk through setup on hardware: picker lists visible networks, mesh SSID appears once, selecting and submitting connects successfully
+- [x] 3.2 Flash and walk through setup on hardware: picker lists visible networks, mesh SSID appears once, selecting and submitting connects successfully
 - [ ] 3.3 Verify hidden-network path: disconnect from all visible APs (or use a hotspot with SSID broadcast off) and confirm manual field allows provisioning
 - [ ] 3.4 `openspec validate --all --strict` clean

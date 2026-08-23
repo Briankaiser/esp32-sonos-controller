@@ -40,7 +40,7 @@ My network isn&rsquo;t listed (hidden network)
        style="display:none;margin-top:.4em" oninput="syncSsid()">
 </div>
 <label style="margin-top:1.2em">WiFi Password <span style=color:red>*</span></label>
-<input name=pass type=password autocomplete=off required>
+<input name=pass type=text autocomplete=off required style="-webkit-text-security:disc;text-security:disc">
 <label>OTA Password</label>
 <input name=ota type=password autocomplete=off>
 <button type=submit>Save &amp; Reboot</button>

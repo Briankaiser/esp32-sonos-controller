@@ -23,6 +23,7 @@ static lv_obj_t*          s_play_btn_lbl   = nullptr;
 static lv_obj_t*          s_progress_bar   = nullptr;
 static lv_obj_t*          s_transport_cont = nullptr;
 static lv_obj_t*          s_volume_arc     = nullptr;
+static lv_obj_t*          s_volume_bar     = nullptr;
 static lv_timer_t*        s_interp_timer          = nullptr;
 static lv_timer_t*        s_transport_restore_tmr = nullptr;
 static lv_obj_t*          s_art_img        = nullptr;
@@ -419,10 +420,55 @@ lv_obj_t* screens::now_playing_create() {
         lv_obj_remove_flag(s_volume_arc, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(s_volume_arc, LV_OPA_TRANSP, LV_PART_KNOB);
     } else {
-        lv_obj_t* slider = lv_slider_create(vol_cont);
-        lv_obj_set_size(slider, lv_pct(90), lv_pct(40));
-        lv_obj_align(slider, LV_ALIGN_CENTER, 0, 0);
-        lv_slider_set_value(slider, 50, LV_ANIM_OFF);
+        // No encoder — flat bar with − / + tap buttons wired to RenderingControl
+        lv_obj_add_flag(vol_cont, LV_OBJ_FLAG_CLICKABLE);  // children need touch
+        lv_obj_set_flex_flow(vol_cont, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(vol_cont,
+            LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(vol_cont, 6, LV_PART_MAIN);
+
+        auto make_vol_btn = [](lv_obj_t* parent, const char* lbl) -> lv_obj_t* {
+            lv_obj_t* btn = lv_button_create(parent);
+            lv_obj_set_size(btn, lv_pct(12), lv_pct(80));
+            lv_obj_set_style_bg_color(btn, lv_color_hex(0x2A2A2A), 0);
+            lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_border_width(btn, 0, 0);
+            lv_obj_set_style_shadow_width(btn, 0, 0);
+            lv_obj_t* label = lv_label_create(btn);
+            lv_label_set_text(label, lbl);
+            lv_obj_set_style_text_color(label, lv_color_hex(0xCCCCCC), 0);
+            lv_obj_center(label);
+            return btn;
+        };
+
+        lv_obj_t* btn_dec = make_vol_btn(vol_cont, LV_SYMBOL_MINUS);
+
+        s_volume_bar = lv_bar_create(vol_cont);
+        lv_obj_set_flex_grow(s_volume_bar, 1);
+        lv_obj_set_height(s_volume_bar, lv_pct(30));
+        lv_bar_set_range(s_volume_bar, 0, 100);
+        lv_bar_set_value(s_volume_bar, 50, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_volume_bar, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s_volume_bar, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_remove_flag(s_volume_bar, LV_OBJ_FLAG_CLICKABLE);
+
+        lv_obj_t* btn_inc = make_vol_btn(vol_cont, LV_SYMBOL_PLUS);
+
+        lv_obj_add_event_cb(btn_dec, [](lv_event_t*) {
+            sonos::playback::enqueue_volume_delta(-5);
+            if (s_volume_bar) {
+                int32_t v = lv_bar_get_value(s_volume_bar) - 5;
+                lv_bar_set_value(s_volume_bar, v < 0 ? 0 : v, LV_ANIM_OFF);
+            }
+        }, LV_EVENT_CLICKED, nullptr);
+
+        lv_obj_add_event_cb(btn_inc, [](lv_event_t*) {
+            sonos::playback::enqueue_volume_delta(5);
+            if (s_volume_bar) {
+                int32_t v = lv_bar_get_value(s_volume_bar) + 5;
+                lv_bar_set_value(s_volume_bar, v > 100 ? 100 : v, LV_ANIM_OFF);
+            }
+        }, LV_EVENT_CLICKED, nullptr);
     }
     // Drop the arc just above the album-art background so the transport discs
     // (and everything else) layer visually on top of it where they overlap at
@@ -647,9 +693,12 @@ void screens::now_playing_open_favorites_overlay() {
 // Called from UI task on encoder turn for immediate visual feedback before poll.
 
 void screens::now_playing_update_volume_arc(int volume_0_100) {
-    if (!s_volume_arc) return;
     int v = volume_0_100 < 0 ? 0 : volume_0_100 > 100 ? 100 : volume_0_100;
-    lv_arc_set_value(s_volume_arc, v);
+    if (s_volume_arc) {
+        lv_arc_set_value(s_volume_arc, v);
+    } else if (s_volume_bar) {
+        lv_bar_set_value(s_volume_bar, v, LV_ANIM_OFF);
+    }
 }
 
 // ── Idle state interface ──────────────────────────────────────────────────────
@@ -674,7 +723,8 @@ void screens::now_playing_wake_from_touch() {
 void screens::now_playing_init_art() {
     // Bind volume arc indicator to the accent token.
     // Progress bar bindings (indicator + contrast track) are set up in now_playing_create().
-    if (s_volume_arc) accent::bind(s_volume_arc, LV_STYLE_ARC_COLOR);
+    if (s_volume_arc)  accent::bind(s_volume_arc, LV_STYLE_ARC_COLOR);
+    if (s_volume_bar)  accent::bind_indicator(s_volume_bar);
 }
 
 // ── now_playing_update ────────────────────────────────────────────────────────
@@ -766,6 +816,11 @@ bool screens::now_playing_update(const sonos::PlaybackState& state) {
     if (s_volume_arc) {
         lv_arc_set_value(s_volume_arc, state.volume);
         lv_obj_set_style_arc_color(s_volume_arc,
+            state.muted ? lv_color_hex(0x555555) : accent::get(),
+            LV_PART_INDICATOR);
+    } else if (s_volume_bar) {
+        lv_bar_set_value(s_volume_bar, state.volume, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_volume_bar,
             state.muted ? lv_color_hex(0x555555) : accent::get(),
             LV_PART_INDICATOR);
     }

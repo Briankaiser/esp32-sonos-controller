@@ -30,6 +30,14 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Added
 
+- On boards without a rotary encoder, the now-playing screen shows a
+  horizontal volume bar flanked by − and + buttons instead of the circular
+  volume arc. Each button tap adjusts the home room speaker's volume by 5
+  units and the bar updates immediately for instant visual feedback. On
+  rectangular boards the volume widget is positioned at the top edge of the
+  control column so the layout reads top-to-bottom: volume → track info →
+  transport controls. The encoder-based arc on the round board is unchanged.
+
 - The setup captive portal now shows a WiFi network picker instead of a
   free-text SSID field: visible networks are scanned when the page loads,
   deduplicated by SSID (mesh systems show one entry at the strongest signal),

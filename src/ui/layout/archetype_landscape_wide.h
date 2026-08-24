@@ -18,12 +18,12 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kH, 90),   // square: height-based so it's truly square
         /*.h=*/ pct(kH, 90),
     },
-    // SLOT_TRACK_INFO: right column, top third
+    // SLOT_TRACK_INFO: right column, below volume strip
     {
         /*.x=*/ pct(kW, 54),
-        /*.y=*/ pct(kH, 5),
+        /*.y=*/ pct(kH, 11),
         /*.w=*/ pct(kW, 42),
-        /*.h=*/ pct(kH, 30),
+        /*.h=*/ pct(kH, 26),
     },
     // SLOT_TRANSPORT: right column, middle
     {
@@ -39,12 +39,12 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kW, 42),
         /*.h=*/ pct(kH, 6),
     },
-    // SLOT_VOLUME_ARC: right column, lower — shown as a slider on no-encoder boards
+    // SLOT_VOLUME_ARC: right column, top edge — flat strip for bar+buttons on no-encoder boards
     {
         /*.x=*/ pct(kW, 54),
-        /*.y=*/ pct(kH, 72),
+        /*.y=*/ pct(kH, 0),
         /*.w=*/ pct(kW, 42),
-        /*.h=*/ pct(kH, 18),
+        /*.h=*/ pct(kH, 10),
     },
     // SLOT_LIST: full display minus a small margin
     {
@@ -60,17 +60,17 @@ inline constexpr std::array<LayoutSlot, SLOT_COUNT> kArchetypeSlots = {{
         /*.w=*/ pct(kW, 42),
         /*.h=*/ pct(kH, 8),
     },
-    // SLOT_TRACK_INFO_COMPACT: right column, top — shrunken metadata (lyrics on)
+    // SLOT_TRACK_INFO_COMPACT: right column, below volume strip — shrunken metadata (lyrics on)
     {
         /*.x=*/ pct(kW, 54),
-        /*.y=*/ pct(kH, 5),
+        /*.y=*/ pct(kH, 11),
         /*.w=*/ pct(kW, 42),
         /*.h=*/ pct(kH, 14),
     },
     // SLOT_LYRICS: right column, between metadata and transport (lyrics on)
     {
         /*.x=*/ pct(kW, 54),
-        /*.y=*/ pct(kH, 21),
+        /*.y=*/ pct(kH, 27),
         /*.w=*/ pct(kW, 42),
         /*.h=*/ pct(kH, 15),
     },

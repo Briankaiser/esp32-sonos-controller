@@ -42,7 +42,7 @@ My network isn&rsquo;t listed (hidden network)
 <label style="margin-top:1.2em">WiFi Password <span style=color:red>*</span></label>
 <input name=wifipass type=text autocomplete=off autocapitalize=off autocorrect=off spellcheck=false required>
 <label>OTA Password</label>
-<input name=ota type=password autocomplete=off>
+<input name=ota type=text autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>
 <button type=submit>Save &amp; Reboot</button>
 </form>
 <script>

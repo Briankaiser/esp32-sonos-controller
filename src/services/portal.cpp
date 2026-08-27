@@ -26,7 +26,8 @@ button{margin-top:1.5em;width:100%;padding:.7em;font-size:1em;background:#1565c0
 </style>
 </head><body>
 <h1>OpenSonos Setup</h1>
-<form method=POST action=/save id=f autocomplete=off>
+<form method=POST action=/save id=f>
+<input type=password style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" tabindex="-1" aria-hidden=true autocomplete=new-password>
 <input type=hidden name=ssid id=ssid-val>
 <label>WiFi Network <span style=color:red>*</span></label>
 <select id=ssid-pick><option value=''>Scanning...</option></select>
@@ -40,7 +41,7 @@ My network isn&rsquo;t listed (hidden network)
        style="display:none;margin-top:.4em" oninput="syncSsid()">
 </div>
 <label style="margin-top:1.2em">WiFi Password <span style=color:red>*</span></label>
-<input name=wifipass type=password autocomplete=off required>
+<input name=wifipass type=password autocomplete=current-password required>
 <label>OTA Password</label>
 <input name=ota type=password autocomplete=off>
 <button type=submit>Save &amp; Reboot</button>

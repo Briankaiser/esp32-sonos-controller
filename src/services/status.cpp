@@ -5,6 +5,7 @@
 #include "../app/sonos/eventing.h"
 
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include <WiFi.h>
 #include <WebServer.h>
 
@@ -40,7 +41,13 @@ static void handle_get_status() {
     json += "  \"speaker_count\": " + String((int)st.speakers.size()) + ",\n";
     json += "  \"home_room_name\": " + json_str(home_name) + ",\n";
     json += "  \"home_room_uuid\": " + json_str(home_uuid) + ",\n";
-    json += "  \"state_source\": " + json_str(source) + "\n";
+    json += "  \"state_source\": " + json_str(source) + ",\n";
+    json += "  \"uptime_s\": " + String((unsigned long)(millis() / 1000)) + ",\n";
+    json += "  \"heap_internal_free\": " + String((unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) + ",\n";
+    json += "  \"heap_internal_min_free\": " + String((unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)) + ",\n";
+    json += "  \"heap_internal_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\n";
+    json += "  \"psram_free\": " + String((unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) + ",\n";
+    json += "  \"psram_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)) + "\n";
     json += "}";
 
     s_server->send(200, "application/json", json);

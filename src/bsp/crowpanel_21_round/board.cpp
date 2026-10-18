@@ -137,7 +137,7 @@ static Arduino_ESP32RGBPanel s_rgb_bus(
     false,          // useBigEndian
     0,              // de_idle_high
     0,              // pclk_idle_high
-    4800            // bounce_buffer_size_px (10 lines × 480 px — DMA reads from SRAM)
+    9600            // bounce_buffer_size_px (20 lines × 480 px — DMA reads from SRAM; extra slack vs PSRAM stalls)
 );
 static Arduino_RGB_Display s_gfx(
     480, 480, &s_rgb_bus,

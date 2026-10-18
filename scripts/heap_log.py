@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Nightly heap logger + leak analyzer for OpenSonos controllers.
+
+Discovers controllers via fleet_update's scanner, appends one JSON line per
+controller to ~/.opensonos-heaplog/heap.jsonl, then analyzes the history and
+writes ~/.opensonos-heaplog/report.txt. A macOS notification fires if a leak
+or fragmentation trend is flagged. Stdlib only.
+
+Usage: heap_log.py [--analyze-only] [--until YYYY-MM-DD]
+"""
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fleet_update  # noqa: E402
+
+LOG_DIR = os.path.expanduser("~/.opensonos-heaplog")
+LOG_FILE = os.path.join(LOG_DIR, "heap.jsonl")
+REPORT_FILE = os.path.join(LOG_DIR, "report.txt")
+FIELDS = ["heap_internal_free", "heap_internal_min_free", "heap_internal_largest",
+          "psram_free", "psram_largest"]
+
+SLOPE_FLAG_BYTES_PER_DAY = -1024      # sustained loss faster than 1 KB/day
+LOW_INTERNAL_FREE = 40 * 1024
+LOW_LARGEST_BLOCK = 20 * 1024
+
+
+def collect():
+    now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    controllers = fleet_update.discover(fleet_update.local_subnets(), passes=2)
+    os.makedirs(LOG_DIR, exist_ok=True)
+    with open(LOG_FILE, "a") as f:
+        for c in controllers:
+            rec = {"ts": now, "room": c.get("home_room_name") or c["ip"], "ip": c["ip"],
+                   "fw": c.get("firmware_version"), "uptime_s": c.get("uptime_s")}
+            for k in FIELDS:
+                rec[k] = c.get(k)
+            f.write(json.dumps(rec) + "\n")
+    return len(controllers)
+
+
+def load():
+    if not os.path.exists(LOG_FILE):
+        return {}
+    by_room = {}
+    with open(LOG_FILE) as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            by_room.setdefault(r["room"], []).append(r)
+    return by_room
+
+
+def slope_per_day(points):
+    """Least-squares slope (units/day) over [(t_days, value)]."""
+    n = len(points)
+    if n < 3:
+        return None
+    mt = sum(t for t, _ in points) / n
+    mv = sum(v for _, v in points) / n
+    den = sum((t - mt) ** 2 for t, _ in points)
+    return None if den == 0 else sum((t - mt) * (v - mv) for t, v in points) / den
+
+
+def analyze():
+    lines, flags = [], []
+    by_room = load()
+    if not by_room:
+        return "No data yet.\n", []
+    for room, recs in sorted(by_room.items()):
+        recs = [r for r in recs if r.get("heap_internal_free") is not None]
+        lines.append("== %s ==  (%d samples)" % (room, len(recs)))
+        if not recs:
+            lines.append("  no heap data (firmware predates heap stats on /status)")
+            continue
+        t0 = datetime.datetime.fromisoformat(recs[0]["ts"])
+        last = recs[-1]
+        lines.append("  last: %s  fw=%s  uptime=%.1fd" % (
+            last["ts"], last["fw"], (last.get("uptime_s") or 0) / 86400))
+        reboots = sum(1 for a, b in zip(recs, recs[1:])
+                      if (b.get("uptime_s") or 0) < (a.get("uptime_s") or 0))
+        lines.append("  reboots detected: %d" % reboots)
+        # Analyze only the current boot (since the most recent uptime reset).
+        start = 0
+        for i in range(1, len(recs)):
+            if (recs[i].get("uptime_s") or 0) < (recs[i - 1].get("uptime_s") or 0):
+                start = i
+        cur = recs[start:]
+        for k in FIELDS:
+            pts = [((datetime.datetime.fromisoformat(r["ts"]) - t0).total_seconds() / 86400, r[k])
+                   for r in cur if r.get(k) is not None]
+            s = slope_per_day(pts)
+            first_v, last_v = (pts[0][1], pts[-1][1]) if pts else (None, None)
+            lines.append("  %-24s now=%-9s first=%-9s slope/day=%s" % (
+                k, last_v, first_v, "n/a" if s is None else "%+.0f" % s))
+            if s is not None and s < SLOPE_FLAG_BYTES_PER_DAY and k != "heap_internal_min_free":
+                flags.append("%s: %s falling %.1f KB/day" % (room, k, -s / 1024))
+        if last["heap_internal_free"] < LOW_INTERNAL_FREE:
+            flags.append("%s: internal heap low (%d KB)" % (room, last["heap_internal_free"] // 1024))
+        if last["heap_internal_largest"] < LOW_LARGEST_BLOCK:
+            flags.append("%s: largest internal block small (%d KB) - fragmentation"
+                         % (room, last["heap_internal_largest"] // 1024))
+    lines.append("")
+    lines.append("FLAGS: " + ("; ".join(flags) if flags else "none"))
+    return "\n".join(lines) + "\n", flags
+
+
+def notify(title, msg):
+    try:
+        subprocess.run(["osascript", "-e",
+                        'display notification "%s" with title "%s"' % (msg.replace('"', "'"), title)],
+                       timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--analyze-only", action="store_true")
+    ap.add_argument("--until", default="2026-11-15", help="stop collecting after this date")
+    args = ap.parse_args()
+
+    if datetime.date.today() > datetime.date.fromisoformat(args.until):
+        print("Past --until date %s; nothing to do." % args.until)
+        return 0
+    if not args.analyze_only:
+        print("collected %d controller(s)" % collect())
+    report, flags = analyze()
+    os.makedirs(LOG_DIR, exist_ok=True)
+    with open(REPORT_FILE, "w") as f:
+        f.write(report)
+    print(report)
+    if flags:
+        notify("OpenSonos heap warning", "; ".join(flags)[:200])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

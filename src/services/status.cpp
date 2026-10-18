@@ -35,6 +35,9 @@ static void handle_get_status() {
     json += "  \"device\": \"opensonos-controller\",\n";
     json += "  \"firmware_version\": " + json_str(fw::version()) + ",\n";
     json += "  \"board\": " + json_str(fw::board()) + ",\n";
+    char dev_id[13];
+    snprintf(dev_id, sizeof(dev_id), "%012llx", (unsigned long long)ESP.getEfuseMac());
+    json += "  \"device_id\": " + json_str(String(dev_id)) + ",\n";
     json += "  \"wifi_connected\": " + String(connected ? "true" : "false") + ",\n";
     json += "  \"ip\": " + json_str(ip) + ",\n";
     json += "  \"wifi_ssid\": " + json_str(ssid) + ",\n";

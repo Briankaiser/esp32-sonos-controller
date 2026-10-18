@@ -2,7 +2,7 @@
 """Nightly heap logger + leak analyzer for OpenSonos controllers.
 
 Discovers controllers via fleet_update's scanner, appends one JSON line per
-controller to ~/.opensonos-heaplog/heap.jsonl, then analyzes the history and
+controller to its own file ~/.opensonos-heaplog/heap-<device_id>.jsonl, then analyzes the history and
 writes ~/.opensonos-heaplog/report.txt. A macOS notification fires if a leak
 or fragmentation trend is flagged. Stdlib only.
 
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleet_update  # noqa: E402
 
 LOG_DIR = os.path.expanduser("~/.opensonos-heaplog")
-LOG_FILE = os.path.join(LOG_DIR, "heap.jsonl")
+LOG_PREFIX = "heap-"   # one file per device: heap-<device_id>.jsonl
 REPORT_FILE = os.path.join(LOG_DIR, "report.txt")
 FIELDS = ["heap_internal_free", "heap_internal_min_free", "heap_internal_largest",
           "psram_free", "psram_largest"]
@@ -33,28 +33,34 @@ def collect():
     now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     controllers = fleet_update.discover(fleet_update.local_subnets(), passes=2)
     os.makedirs(LOG_DIR, exist_ok=True)
-    with open(LOG_FILE, "a") as f:
-        for c in controllers:
-            rec = {"ts": now, "room": c.get("home_room_name") or c["ip"], "ip": c["ip"],
-                   "fw": c.get("firmware_version"), "uptime_s": c.get("uptime_s")}
+    for c in controllers:
+        dev = c.get("device_id")
+        if dev:
+            rec = {"ts": now, "device_id": dev, "room": c.get("home_room_name") or "",
+                   "ip": c["ip"], "fw": c.get("firmware_version"), "uptime_s": c.get("uptime_s")}
             for k in FIELDS:
                 rec[k] = c.get(k)
-            f.write(json.dumps(rec) + "\n")
+            with open(os.path.join(LOG_DIR, "%s%s.jsonl" % (LOG_PREFIX, dev)), "a") as f:
+                f.write(json.dumps(rec) + "\n")
     return len(controllers)
 
 
 def load():
-    if not os.path.exists(LOG_FILE):
-        return {}
-    by_room = {}
-    with open(LOG_FILE) as f:
-        for line in f:
-            try:
-                r = json.loads(line)
-            except ValueError:
-                continue
-            by_room.setdefault(r["room"], []).append(r)
-    return by_room
+    """{device_id: [records]} from the per-device log files."""
+    by_dev = {}
+    if not os.path.isdir(LOG_DIR):
+        return by_dev
+    for name in sorted(os.listdir(LOG_DIR)):
+        if not (name.startswith(LOG_PREFIX) and name.endswith(".jsonl")):
+            continue
+        dev = name[len(LOG_PREFIX):-len(".jsonl")]
+        with open(os.path.join(LOG_DIR, name)) as f:
+            for line in f:
+                try:
+                    by_dev.setdefault(dev, []).append(json.loads(line))
+                except ValueError:
+                    continue
+    return by_dev
 
 
 def slope_per_day(points):
@@ -70,11 +76,12 @@ def slope_per_day(points):
 
 def analyze():
     lines, flags = [], []
-    by_room = load()
-    if not by_room:
+    by_dev = load()
+    if not by_dev:
         return "No data yet.\n", []
-    for room, recs in sorted(by_room.items()):
+    for dev, recs in sorted(by_dev.items()):
         recs = [r for r in recs if r.get("heap_internal_free") is not None]
+        room = "%s [%s]" % (recs[-1]["room"] or "?", dev) if recs else dev
         lines.append("== %s ==  (%d samples)" % (room, len(recs)))
         if not recs:
             lines.append("  no heap data (firmware predates heap stats on /status)")

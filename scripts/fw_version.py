@@ -57,7 +57,7 @@ def _write_if_changed(path, content):
 
 project_dir = env.subst("$PROJECT_DIR")
 build_dir = env.subst("$BUILD_DIR")
-version = _git_describe(project_dir)
+version = _git_describe(project_dir) + os.environ.get("OPENSONOS_VERSION_SUFFIX", "")
 
 # 1. Generated header the firmware includes.
 header = (

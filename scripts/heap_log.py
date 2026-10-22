@@ -27,6 +27,7 @@ FIELDS = ["heap_internal_free", "heap_internal_min_free", "heap_internal_largest
 SLOPE_FLAG_BYTES_PER_DAY = -1024      # sustained loss faster than 1 KB/day
 LOW_INTERNAL_FREE = 40 * 1024
 LOW_LARGEST_BLOCK = 20 * 1024
+MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 
 def collect():
@@ -108,6 +109,14 @@ def analyze():
                 k, last_v, first_v, "n/a" if s is None else "%+.0f" % s))
             if s is not None and s < SLOPE_FLAG_BYTES_PER_DAY and k != "heap_internal_min_free":
                 flags.append("%s: %s falling %.1f KB/day" % (room, k, -s / 1024))
+        if last["heap_internal_min_free"] < MIN_FREE_FLOOR:
+            flags.append("%s: internal heap low-water mark only %d bytes since boot (near-OOM)"
+                         % (room, last["heap_internal_min_free"]))
+        if len(cur) >= 2:
+            d = cur[-2]["heap_internal_min_free"] - cur[-1]["heap_internal_min_free"]
+            if d >= 4096:
+                flags.append("%s: low-water mark dropped %d bytes since the previous sample (new low)"
+                             % (room, d))
         if last["heap_internal_free"] < LOW_INTERNAL_FREE:
             flags.append("%s: internal heap low (%d KB)" % (room, last["heap_internal_free"] // 1024))
         if last["heap_internal_largest"] < LOW_LARGEST_BLOCK:

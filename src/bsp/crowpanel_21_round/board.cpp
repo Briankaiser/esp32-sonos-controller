@@ -119,6 +119,10 @@ static const uint8_t kST7701InitOps[] = {
     DELAY, 50,
 };
 
+#ifndef OPENSONOS_BOUNCE_PX
+#define OPENSONOS_BOUNCE_PX 9600  // 20 lines × 480 px
+#endif
+
 // ── Module-private state ─────────────────────────────────────────────────────
 
 // Arduino_SWSPI(dc, cs, sck, mosi, miso): dc=-1 (3-wire), cs=-1 unused
@@ -137,7 +141,7 @@ static Arduino_ESP32RGBPanel s_rgb_bus(
     false,          // useBigEndian
     0,              // de_idle_high
     0,              // pclk_idle_high
-    9600            // bounce_buffer_size_px (20 lines × 480 px — DMA reads from SRAM; extra slack vs PSRAM stalls)
+    OPENSONOS_BOUNCE_PX // bounce_buffer_size_px (DMA reads from SRAM; 20 lines default for slack vs PSRAM stalls)
 );
 static Arduino_RGB_Display s_gfx(
     480, 480, &s_rgb_bus,

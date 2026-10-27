@@ -1,6 +1,7 @@
 #include "art.h"
 #include "state.h"
 #include "playback.h"
+#include "../../services/diag.h"
 
 #include <Arduino.h>
 #include <WiFiClient.h>
@@ -167,6 +168,7 @@ static size_t fetch_jpeg(const String& url,
     }
 
     s_last_host = host + ":" + String(port) + (use_tls ? " (tls)" : "");
+    diag::Scope diag_fetch(diag::kArtFetch | (use_tls ? diag::kArtTls : 0u));
 
     // Pick the transport. WiFiClientSecure carries the TLS stack (heavier); only
     // engaged for https absolute URLs. setInsecure() skips cert validation, which
@@ -361,7 +363,11 @@ static void fetch_and_decode(const String& url,
     s_decoded_w = dec_w;
 
     uint32_t t_dec = millis();
-    int ok = s_jpeg.decode(0, 0, scale);
+    int ok;
+    {
+        diag::Scope diag_decode(diag::kArtDecode);
+        ok = s_jpeg.decode(0, 0, scale);
+    }
     uint32_t decode_ms = millis() - t_dec;
     s_jpeg.close();
 

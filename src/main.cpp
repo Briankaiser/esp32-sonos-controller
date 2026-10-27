@@ -17,6 +17,7 @@
 #include "services/rooms.h"
 #include "services/status.h"
 #include "services/fw_version.h"
+#include "services/diag.h"
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
 #include "app/sonos/soap.h"
@@ -110,7 +111,10 @@ static void reset_tick(lv_timer_t*) {
  */
 static void web_task(void* /*arg*/) {
     for (;;) {
-        s_web_server.handleClient();
+        {
+            diag::Scope diag_web(diag::kWeb);
+            s_web_server.handleClient();
+        }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
@@ -459,6 +463,7 @@ static void ui_task(void* /*arg*/) {
  */
 void setup() {
     Serial.begin(115200);
+    diag::begin();
 
     // Hardware init (I2C, PCF8574, backlight off) — runs on both portal and
     // normal boot paths so the display is available before the provisioning check.

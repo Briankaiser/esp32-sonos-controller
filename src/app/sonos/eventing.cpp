@@ -6,6 +6,7 @@
 #include "discovery.h"
 #include "soap.h"
 #include "art.h"
+#include "../../services/diag.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -348,6 +349,7 @@ static void dispatch_notify(const sonos::gena::NotifyHead& head, bool oversized)
 static void service_notify_listener() {
     WiFiClient client = s_server.available();
     if (!client) return;
+    diag::Scope diag_gena(diag::kGenaNotify);
 
     sonos::gena::NotifyHead head;
     uint32_t body_len  = 0;

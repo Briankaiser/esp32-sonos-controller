@@ -27,6 +27,7 @@ FIELDS = ["heap_internal_free", "heap_internal_min_free", "heap_internal_largest
 SLOPE_FLAG_BYTES_PER_DAY = -1024      # sustained loss faster than 1 KB/day
 LOW_INTERNAL_FREE = 40 * 1024
 LOW_LARGEST_BLOCK = 20 * 1024
+EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips"]
 MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 
@@ -39,7 +40,7 @@ def collect():
         if dev:
             rec = {"ts": now, "device_id": dev, "room": c.get("home_room_name") or "",
                    "ip": c["ip"], "fw": c.get("firmware_version"), "uptime_s": c.get("uptime_s")}
-            for k in FIELDS:
+            for k in FIELDS + EXTRA_FIELDS:
                 rec[k] = c.get(k)
             with open(os.path.join(LOG_DIR, "%s%s.jsonl" % (LOG_PREFIX, dev)), "a") as f:
                 f.write(json.dumps(rec) + "\n")
@@ -109,6 +110,16 @@ def analyze():
                 k, last_v, first_v, "n/a" if s is None else "%+.0f" % s))
             if s is not None and s < SLOPE_FLAG_BYTES_PER_DAY and k != "heap_internal_min_free":
                 flags.append("%s: %s falling %.1f KB/day" % (room, k, -s / 1024))
+        dips = last.get("heap_dips") or []
+        lines.append("  dips since boot: %s   alloc failures: %s" % (
+            last.get("dip_count", "n/a"), last.get("alloc_fail_count", "n/a")))
+        for d in dips[-8:]:
+            lines.append("    up=%.2fd floor=%dB largest=%dB dur=%dms new_low=%s active=%s" % (
+                d["up_s"] / 86400, d["floor"], d["largest"], d["dur_ms"], d["new_low"],
+                "+".join(d["active"]) or "none"))
+        if (last.get("alloc_fail_count") or 0) > 0:
+            flags.append("%s: %d failed heap allocation(s), last %s" % (
+                room, last["alloc_fail_count"], last.get("alloc_fail_last")))
         if last["heap_internal_min_free"] < MIN_FREE_FLOOR:
             flags.append("%s: internal heap low-water mark only %d bytes since boot (near-OOM)"
                          % (room, last["heap_internal_min_free"]))

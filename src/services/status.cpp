@@ -1,6 +1,7 @@
 #include "status.h"
 #include "prefs.h"
 #include "fw_version.h"
+#include "diag.h"
 #include "../app/sonos/state.h"
 #include "../app/sonos/eventing.h"
 
@@ -50,7 +51,8 @@ static void handle_get_status() {
     json += "  \"heap_internal_min_free\": " + String((unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)) + ",\n";
     json += "  \"heap_internal_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\n";
     json += "  \"psram_free\": " + String((unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) + ",\n";
-    json += "  \"psram_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)) + "\n";
+    json += "  \"psram_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)) + ",\n";
+    json += diag::json_fragment() + "\n";
     json += "}";
 
     s_server->send(200, "application/json", json);

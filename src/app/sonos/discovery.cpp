@@ -4,6 +4,7 @@
 #include "playback.h"
 #include "xml_util.h"
 #include "../../services/prefs.h"
+#include "../../services/diag.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -452,6 +453,7 @@ void sonos::discovery::refresh_topology_via_soap() {
 // ── Public entry point ────────────────────────────────────────────────────────
 
 void sonos::discovery::run_cycle() {
+    diag::Scope diag_disc(diag::kDiscovery);
     if (WiFi.status() != WL_CONNECTED) {
         // Backstop for disconnect reasons the IDF's own auto-reconnect (enabled in
         // main.cpp after the initial connect) doesn't recover from on its own.

@@ -1,4 +1,5 @@
 #include "soap.h"
+#include "../../services/diag.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <freertos/FreeRTOS.h>
@@ -52,6 +53,7 @@ static String read_line(WiFiClient& client, uint32_t deadline) {
 String sonos::soap::call(const String& ip, uint16_t port,
                          const String& path, const String& service_type,
                          const String& action, const String& args_xml) {
+    diag::Scope diag_soap(diag::kSoap);
     String body =
         "<?xml version=\"1.0\"?>"
         "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" "

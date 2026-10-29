@@ -8,7 +8,7 @@
 
 namespace {
 
-constexpr int      kBits         = 8;
+constexpr int      kBits         = 7;
 constexpr size_t   kRing         = 24;
 constexpr uint32_t kDipBytes     = 16 * 1024;
 constexpr uint32_t kDipExitBytes = 24 * 1024;  // hysteresis so one dip is one entry
@@ -16,7 +16,7 @@ constexpr uint32_t kPollMs       = 200;
 
 const char* const kNames[kBits] = {
     "art_fetch", "art_tls", "art_decode", "lyrics_tls",
-    "soap", "discovery", "gena_notify", "web",
+    "soap", "discovery", "gena_notify",
 };
 
 struct Dip {

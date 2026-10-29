@@ -17,7 +17,6 @@ enum Activity : uint32_t {
     kSoap       = 1u << 4,  // SOAP call to a speaker
     kDiscovery  = 1u << 5,  // discovery cycle
     kGenaNotify = 1u << 6,  // inbound GENA NOTIFY handling
-    kWeb        = 1u << 7,  // web server request (status/screenshot/OTA)
 };
 
 void begin();  // call once, as early in setup() as possible

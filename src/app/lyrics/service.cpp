@@ -1,6 +1,7 @@
 #include "service.h"
 #include "lyrics_api.h"
 #include "../../services/diag.h"
+#include "../../services/tls_gate.h"
 
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
@@ -90,6 +91,8 @@ static size_t fetch_body(const String& path, int* http_status) {
     *http_status = -1;
     if (!s_buf) return 0;
 
+    tls_gate::Guard tls_guard(true);
+    if (!tls_guard.ok()) return 0;   // art TLS in flight: treat as transient failure
     diag::Scope diag_tls(diag::kLyricsTls);
     WiFiClientSecure client;
     client.setInsecure();          // public lyrics text; no CA bundle shipped (as with art)

@@ -2,6 +2,7 @@
 #include "state.h"
 #include "playback.h"
 #include "../../services/diag.h"
+#include "../../services/tls_gate.h"
 
 #include <Arduino.h>
 #include <WiFiClient.h>
@@ -168,6 +169,12 @@ static size_t fetch_jpeg(const String& url,
     }
 
     s_last_host = host + ":" + String(port) + (use_tls ? " (tls)" : "");
+    tls_gate::Guard tls_guard(use_tls);
+    if (!tls_guard.ok()) {
+        Serial.println("[Art] TLS busy for 30 s (lyrics fetch in flight) — skipping this art fetch");
+        s_last_fetch_ms = millis() - t_start;
+        return 0;
+    }
     diag::Scope diag_fetch(diag::kArtFetch | (use_tls ? diag::kArtTls : 0u));
 
     // Pick the transport. WiFiClientSecure carries the TLS stack (heavier); only

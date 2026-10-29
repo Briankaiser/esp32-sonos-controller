@@ -111,10 +111,7 @@ static void reset_tick(lv_timer_t*) {
  */
 static void web_task(void* /*arg*/) {
     for (;;) {
-        {
-            diag::Scope diag_web(diag::kWeb);
-            s_web_server.handleClient();
-        }
+        s_web_server.handleClient();
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }

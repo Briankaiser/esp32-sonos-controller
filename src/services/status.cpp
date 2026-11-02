@@ -2,6 +2,7 @@
 #include "prefs.h"
 #include "fw_version.h"
 #include "diag.h"
+#include "tls_mem.h"
 #include "../app/sonos/state.h"
 #include "../app/sonos/eventing.h"
 
@@ -52,6 +53,11 @@ static void handle_get_status() {
     json += "  \"heap_internal_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\n";
     json += "  \"psram_free\": " + String((unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) + ",\n";
     json += "  \"psram_largest\": " + String((unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)) + ",\n";
+    unsigned tm[5];
+    tls_mem::stats(tm);
+    json += "  \"tls_mem\": {\"psram_allocs\": " + String(tm[0]) + ", \"psram_bytes\": " + String(tm[1]) +
+            ", \"internal_allocs\": " + String(tm[2]) + ", \"internal_bytes\": " + String(tm[3]) +
+            ", \"fallbacks\": " + String(tm[4]) + "},\n";
     json += diag::json_fragment() + "\n";
     json += "}";
 

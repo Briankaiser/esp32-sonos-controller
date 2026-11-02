@@ -18,6 +18,7 @@
 #include "services/status.h"
 #include "services/fw_version.h"
 #include "services/diag.h"
+#include "services/tls_mem.h"
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
 #include "app/sonos/soap.h"
@@ -461,6 +462,7 @@ static void ui_task(void* /*arg*/) {
 void setup() {
     Serial.begin(115200);
     diag::begin();
+    tls_mem::install();
 
     // Hardware init (I2C, PCF8574, backlight off) — runs on both portal and
     // normal boot paths so the display is available before the provisioning check.

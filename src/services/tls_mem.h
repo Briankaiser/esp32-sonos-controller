@@ -7,6 +7,6 @@
 namespace tls_mem {
 void install();
 
-// Counters for /status: {psram_allocs, psram_bytes, internal_allocs, internal_bytes, fallbacks}.
-void stats(unsigned out[5]);
+// Allocation counts for /status: PSRAM-backed vs. fell back to internal RAM.
+void stats(unsigned& psram_allocs, unsigned& fallback_allocs);
 }

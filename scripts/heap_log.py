@@ -27,7 +27,8 @@ FIELDS = ["heap_internal_free", "heap_internal_min_free", "heap_internal_largest
 SLOPE_FLAG_BYTES_PER_DAY = -1024      # sustained loss faster than 1 KB/day
 LOW_INTERNAL_FREE = 40 * 1024
 LOW_LARGEST_BLOCK = 20 * 1024
-EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips"]
+EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips",
+                "tls_psram_allocs", "tls_fallback_allocs"]
 MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 

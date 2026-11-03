@@ -13,6 +13,12 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 
 ### Fixed
 
+- After days of continuous running, album art could stop updating and the display
+  could flicker at the edge, because every HTTPS fetch (streaming-service art,
+  lyrics) exhausted the controller's internal memory. HTTPS sessions now use
+  external memory and no longer overlap, so art and lyrics keep loading, and
+  `/status` reports memory health for monitoring
+  ([change](openspec/changes/archive/2026-11-03-add-tls-psram-and-heap-diagnostics/)).
 - Changing the home room while eventing was active could leave the now-playing
   title, artist, and album showing the previous room's track (album art still
   updated to the new room, so the two disagreed). The text is applied only when

@@ -35,6 +35,11 @@ This points at network-stack memory under a slow download. `/status` now reports
 `wifi_rssi` (change `add-status-wifi-rssi`) so the link quality of the two
 controllers can be compared; the nightly log records it.
 
+First RSSI reading (2026-11-05, fw `b5764d0`): **Kitchen -80 dBm, Bathroom -62 dBm.**
+Kitchen's link is ~18 dB weaker (below the usual -70 dBm "reliable" line), which
+fits the slow OTA uploads, ~1 s ping and the dips appearing only on that board.
+Supports hypothesis 1 below; not yet proof of mechanism.
+
 ## Hypotheses
 
 1. **WiFi/lwIP receive buffers.** A large download over a weak link fills TCP
@@ -46,7 +51,9 @@ controllers can be compared; the nightly log records it.
 
 - [ ] Log internal free RAM at 200 ms through a full art fetch (serial trace or a
       temporary ring on `/status`) to see the shape of the dip.
-- [ ] Compare `wifi_rssi` (now on `/status` and in the nightly log) and retransmit behaviour during the fetch;
+- [x] Compare `wifi_rssi` between the two controllers (Kitchen -80, Bathroom -62 dBm)
+- [ ] Watch `wifi_rssi` over several nights (logged nightly) and correlate with dips
+- [ ] Try improving Kitchen's link (move/replace AP, check channel) and see if the dips stop during the fetch;
       compare with the Bathroom.
 - [ ] Test a smaller lwIP TCP receive window / reading in smaller chunks and
       measure the floor.

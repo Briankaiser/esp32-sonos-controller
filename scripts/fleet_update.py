@@ -27,6 +27,7 @@ OTA password:
 import argparse
 import concurrent.futures
 import getpass
+import http.client
 import ipaddress
 import json
 import os
@@ -187,12 +188,19 @@ def print_list(controllers):
 
 # ── OTA upload ───────────────────────────────────────────────────────────────
 
-def post_update(ip, firmware, password, timeout=60):
+UPLOAD_TIMEOUT_S = 300  # a slow WiFi link can need minutes to push ~1.7 MB
+
+
+def post_update(ip, firmware, password, timeout=UPLOAD_TIMEOUT_S):
     """POST the firmware as multipart/form-data with the X-OTA-Password header.
 
-    Returns (accepted, message). `accepted` True means the device took the image
-    and is rebooting. A connection reset/drop after the request is sent is treated
-    as accepted-and-rebooting (the device restarts as/after it responds); an HTTP
+    Returns (accepted, message). `accepted` True means the device took the whole
+    image and is rebooting; the caller's version check is still the real gate.
+
+    Only a connection that drops *after* the image was fully sent counts as
+    accepted-and-rebooting (the device restarts as/after it responds). Failing
+    to connect at all (refused, no route, unreachable) or timing out means the
+    upload did not demonstrably happen, so it is reported as a failure; an HTTP
     401/400 is a hard rejection.
     """
     boundary = "----opensonos%s" % uuidlib.uuid4().hex
@@ -203,27 +211,36 @@ def post_update(ip, firmware, password, timeout=60):
     ).encode()
     post = ("\r\n--%s--\r\n" % boundary).encode()
     body = pre + firmware + post
+    headers = {
+        "X-OTA-Password": password,
+        "Content-Type": "multipart/form-data; boundary=%s" % boundary,
+        "Content-Length": str(len(body)),
+    }
 
-    req = urllib.request.Request(
-        "http://%s:%d/update" % (ip, HTTP_PORT),
-        data=body,
-        method="POST",
-        headers={
-            "X-OTA-Password": password,
-            "Content-Type": "multipart/form-data; boundary=%s" % boundary,
-            "Content-Length": str(len(body)),
-        },
-    )
+    conn = http.client.HTTPConnection(ip, HTTP_PORT, timeout=timeout)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return True, "HTTP %d %s" % (resp.status, resp.read().decode(errors="replace").strip())
-    except urllib.error.HTTPError as e:
+        # Phase 1: reach the device. Any failure here means nothing was uploaded.
+        try:
+            conn.connect()
+        except (OSError, socket.timeout) as e:
+            return False, "could not connect to %s: %s" % (ip, e)
+        # Phase 2: send the image and read the reply.
+        try:
+            conn.request("POST", "/update", body=body, headers=headers)
+            resp = conn.getresponse()
+            text = resp.read().decode(errors="replace").strip()
+        except socket.timeout:
+            return False, "timed out after %ds waiting for the upload to finish" % timeout
+        except (ConnectionError, http.client.HTTPException, OSError) as e:
+            # Dropped/reset around the response — expected as the device
+            # reboots. Treat as accepted; verification below is the real gate.
+            return True, "connection dropped during reboot (expected): %s" % e
+        if 200 <= resp.status < 300:
+            return True, "HTTP %d %s" % (resp.status, text)
         # The device answered with a status code — a real rejection (401/400).
-        return False, "HTTP %d %s" % (e.code, e.read().decode(errors="replace").strip())
-    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError) as e:
-        # Connection dropped/reset around the response — expected as the device
-        # reboots. Treat as accepted; verification below is the real gate.
-        return True, "connection dropped during reboot (expected): %s" % e
+        return False, "HTTP %d %s" % (resp.status, text)
+    finally:
+        conn.close()
 
 
 # ── Verified completion ──────────────────────────────────────────────────────

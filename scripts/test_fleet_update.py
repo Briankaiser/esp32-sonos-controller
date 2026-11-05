@@ -341,6 +341,51 @@ class FleetUpdateTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("did not report", why)
 
+    # ── post_update failure classification ──────────────────────────────
+
+    def test_post_update_unreachable_is_failure(self):
+        import socket as _s
+        with _s.socket() as sk:  # grab a port nothing listens on
+            sk.bind(("127.0.0.1", 0)); closed_port = sk.getsockname()[1]
+        fu.HTTP_PORT = closed_port
+        ok, msg = fu.post_update("127.0.0.1", b"fw", "pw", timeout=2)
+        self.assertFalse(ok)
+        self.assertIn("could not connect", msg)
+
+    def test_post_update_success_and_reject(self):
+        ok, _ = fu.post_update("127.0.0.1", b"fw", "pw", timeout=5)
+        self.assertTrue(ok)
+        ok, msg = fu.post_update("127.0.0.1", b"fw", "WRONG", timeout=5)
+        self.assertFalse(ok)
+        self.assertIn("401", msg)
+
+    def test_post_update_drop_after_upload_is_accepted(self):
+        import socket as _s
+        srv = _s.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+        def serve():
+            conn, _ = srv.accept()
+            conn.recv(1 << 20)  # read (part of) the upload, then drop it like a rebooting device
+            conn.close()
+        threading.Thread(target=serve, daemon=True).start()
+        fu.HTTP_PORT = srv.getsockname()[1]
+        ok, msg = fu.post_update("127.0.0.1", b"fw", "pw", timeout=5)
+        srv.close()
+        self.assertTrue(ok)
+        self.assertIn("expected", msg)
+
+    def test_post_update_timeout_is_failure(self):
+        import socket as _s
+        srv = _s.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+        held = []
+        def serve():
+            conn, _ = srv.accept(); held.append(conn)  # accept, never answer
+        threading.Thread(target=serve, daemon=True).start()
+        fu.HTTP_PORT = srv.getsockname()[1]
+        ok, msg = fu.post_update("127.0.0.1", b"fw", "pw", timeout=1)
+        srv.close()
+        self.assertFalse(ok)
+        self.assertIn("timed out", msg)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

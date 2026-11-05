@@ -40,6 +40,15 @@ Kitchen's link is ~18 dB weaker (below the usual -70 dBm "reliable" line), which
 fits the slow OTA uploads, ~1 s ping and the dips appearing only on that board.
 Supports hypothesis 1 below; not yet proof of mechanism.
 
+After `add-wifi-best-node-selection` (fw `42517af`, boot join now scans all
+channels and takes the strongest node): **Kitchen -76 dBm** on `E4:19:7F:47:7A:46`
+ch 1 (was -80), **Bathroom -55 dBm** on `0C:93:A5:1D:CC:86` ch 1 (was -62). The
+Kitchen's strongest *visible* node is still only -76 dBm, so it was not simply on
+the wrong node: the link is weak because of distance/obstruction, and the fix is
+physical (a node closer to the Kitchen, or a better antenna position) rather than
+firmware. The roam monitor was exercised on hardware with relaxed thresholds
+(re-join worked, cooldown held).
+
 ## Hypotheses
 
 1. **WiFi/lwIP receive buffers.** A large download over a weak link fills TCP
@@ -53,7 +62,7 @@ Supports hypothesis 1 below; not yet proof of mechanism.
       temporary ring on `/status`) to see the shape of the dip.
 - [x] Compare `wifi_rssi` between the two controllers (Kitchen -80, Bathroom -62 dBm)
 - [ ] Watch `wifi_rssi` over several nights (logged nightly) and correlate with dips
-- [ ] Try improving Kitchen's link (move/replace AP, check channel) and see if the dips stop during the fetch;
+- [ ] Improve Kitchen's link physically (closer node, antenna position/orientation, away from the microwave/metal) and see if the dips stop during the fetch;
       compare with the Bathroom.
 - [ ] Test a smaller lwIP TCP receive window / reading in smaller chunks and
       measure the floor.

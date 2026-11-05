@@ -39,6 +39,11 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 - `/status` now reports the controller's WiFi signal strength (`wifi_rssi`, dBm), so a
   weak link can be spotted remotely
   ([change](openspec/changes/archive/2026-11-05-add-status-wifi-rssi/)).
+- The controller now joins the strongest node of a mesh WiFi network instead of the
+  first one that answers, and when its signal stays weak while idle it moves to a
+  clearly stronger node; `/status` reports the node (`wifi_bssid`, `wifi_channel`,
+  `wifi_reselects`)
+  ([change](openspec/changes/archive/2026-11-05-add-wifi-best-node-selection/)).
 - On boards without a rotary encoder, the now-playing screen shows a
   horizontal volume bar flanked by − and + buttons instead of the circular
   volume arc. Each button tap adjusts the home room speaker's volume by 5

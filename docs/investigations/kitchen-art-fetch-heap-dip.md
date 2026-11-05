@@ -25,6 +25,16 @@ this is margin, not an outage — but 1.6 KB leaves no headroom.
   Bathroom's is not. Both dips are during the art *download*.
 - `/getaa` relative art is plain HTTP and was not involved in these dips.
 
+## Update 2026-11-05
+
+Nightly sample (fw `3bfbfe0`, ~1.6 d): Kitchen low-water mark fell to 400 B with
+3 dips (floors 800 → 448 → 400 B, all `art_fetch+art_tls`, the last overlapping a
+discovery cycle) and **one failed 198-byte allocation in the lwIP `tiT` task** —
+a networking-stack allocation, not TLS. Bathroom: 0 dips, low-water 78,440 B.
+This points at network-stack memory under a slow download. `/status` now reports
+`wifi_rssi` (change `add-status-wifi-rssi`) so the link quality of the two
+controllers can be compared; the nightly log records it.
+
 ## Hypotheses
 
 1. **WiFi/lwIP receive buffers.** A large download over a weak link fills TCP
@@ -36,7 +46,7 @@ this is margin, not an outage — but 1.6 KB leaves no headroom.
 
 - [ ] Log internal free RAM at 200 ms through a full art fetch (serial trace or a
       temporary ring on `/status`) to see the shape of the dip.
-- [ ] Record Kitchen's WiFi RSSI and retransmit behaviour during the fetch;
+- [ ] Compare `wifi_rssi` (now on `/status` and in the nightly log) and retransmit behaviour during the fetch;
       compare with the Bathroom.
 - [ ] Test a smaller lwIP TCP receive window / reading in smaller chunks and
       measure the floor.

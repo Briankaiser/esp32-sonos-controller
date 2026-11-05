@@ -28,7 +28,7 @@ SLOPE_FLAG_BYTES_PER_DAY = -1024      # sustained loss faster than 1 KB/day
 LOW_INTERNAL_FREE = 40 * 1024
 LOW_LARGEST_BLOCK = 20 * 1024
 EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips",
-                "tls_psram_allocs", "tls_fallback_allocs"]
+                "tls_psram_allocs", "tls_fallback_allocs", "wifi_rssi"]
 MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 
@@ -111,6 +111,10 @@ def analyze():
                 k, last_v, first_v, "n/a" if s is None else "%+.0f" % s))
             if s is not None and s < SLOPE_FLAG_BYTES_PER_DAY and k != "heap_internal_min_free":
                 flags.append("%s: %s falling %.1f KB/day" % (room, k, -s / 1024))
+        rssi = [r["wifi_rssi"] for r in recs if r.get("wifi_rssi") is not None]
+        if rssi:
+            lines.append("  wifi_rssi (dBm)          now=%s  min=%s  avg=%.0f  (%d samples)" % (
+                rssi[-1], min(rssi), sum(rssi) / len(rssi), len(rssi)))
         dips = last.get("heap_dips") or []
         lines.append("  dips since boot: %s   alloc failures: %s" % (
             last.get("dip_count", "n/a"), last.get("alloc_fail_count", "n/a")))

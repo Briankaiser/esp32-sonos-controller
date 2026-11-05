@@ -43,6 +43,7 @@ static void handle_get_status() {
     json += "  \"wifi_connected\": " + String(connected ? "true" : "false") + ",\n";
     json += "  \"ip\": " + json_str(ip) + ",\n";
     json += "  \"wifi_ssid\": " + json_str(ssid) + ",\n";
+    json += "  \"wifi_rssi\": " + (connected ? String((int)WiFi.RSSI()) : String("null")) + ",\n";
     json += "  \"speaker_count\": " + String((int)st.speakers.size()) + ",\n";
     json += "  \"home_room_name\": " + json_str(home_name) + ",\n";
     json += "  \"home_room_uuid\": " + json_str(home_uuid) + ",\n";

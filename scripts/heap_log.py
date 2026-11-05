@@ -28,7 +28,8 @@ SLOPE_FLAG_BYTES_PER_DAY = -1024      # sustained loss faster than 1 KB/day
 LOW_INTERNAL_FREE = 40 * 1024
 LOW_LARGEST_BLOCK = 20 * 1024
 EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips",
-                "tls_psram_allocs", "tls_fallback_allocs", "wifi_rssi"]
+                "tls_psram_allocs", "tls_fallback_allocs", "wifi_rssi",
+                "wifi_bssid", "wifi_channel", "wifi_reselects"]
 MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 
@@ -115,6 +116,9 @@ def analyze():
         if rssi:
             lines.append("  wifi_rssi (dBm)          now=%s  min=%s  avg=%.0f  (%d samples)" % (
                 rssi[-1], min(rssi), sum(rssi) / len(rssi), len(rssi)))
+        if last.get("wifi_bssid"):
+            lines.append("  wifi node: %s ch%s  reselects=%s" % (
+                last["wifi_bssid"], last.get("wifi_channel"), last.get("wifi_reselects")))
         dips = last.get("heap_dips") or []
         lines.append("  dips since boot: %s   alloc failures: %s" % (
             last.get("dip_count", "n/a"), last.get("alloc_fail_count", "n/a")))

@@ -19,6 +19,7 @@
 #include "services/fw_version.h"
 #include "services/diag.h"
 #include "services/tls_mem.h"
+#include "services/wifi_roam.h"
 #include "app/sonos/state.h"
 #include "app/sonos/discovery.h"
 #include "app/sonos/soap.h"
@@ -479,6 +480,11 @@ void setup() {
     // setAutoReconnect(false) prevents the driver using cached IDF-NVS credentials
     // that could race with our WiFi.begin() call.
     WiFi.setAutoReconnect(false);
+    // Mesh networks advertise one name from several nodes. The default joins the
+    // first node that answers; scan every channel and join the strongest instead.
+    // The same settings govern automatic reconnects after the initial join.
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     {
         String ssid = prefs::wifi_ssid();
         String pass = prefs::wifi_pass();
@@ -515,6 +521,7 @@ void setup() {
         rooms::register_handlers(s_web_server);
         status::register_handler(s_web_server);
         s_web_server.begin();
+        wifi_roam::begin(screens::now_playing_is_idle);
     }
 
     // Worker → UI queue

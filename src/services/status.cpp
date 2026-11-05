@@ -3,6 +3,7 @@
 #include "fw_version.h"
 #include "diag.h"
 #include "tls_mem.h"
+#include "wifi_roam.h"
 #include "../app/sonos/state.h"
 #include "../app/sonos/eventing.h"
 
@@ -43,6 +44,9 @@ static void handle_get_status() {
     json += "  \"wifi_connected\": " + String(connected ? "true" : "false") + ",\n";
     json += "  \"ip\": " + json_str(ip) + ",\n";
     json += "  \"wifi_ssid\": " + json_str(ssid) + ",\n";
+    json += "  \"wifi_bssid\": " + json_str(connected ? WiFi.BSSIDstr() : String("")) + ",\n";
+    json += "  \"wifi_channel\": " + (connected ? String((int)WiFi.channel()) : String("null")) + ",\n";
+    json += "  \"wifi_reselects\": " + String((unsigned)wifi_roam::reselect_count()) + ",\n";
     json += "  \"wifi_rssi\": " + (connected ? String((int)WiFi.RSSI()) : String("null")) + ",\n";
     json += "  \"speaker_count\": " + String((int)st.speakers.size()) + ",\n";
     json += "  \"home_room_name\": " + json_str(home_name) + ",\n";

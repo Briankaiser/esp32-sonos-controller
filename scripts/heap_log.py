@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fleet_update  # noqa: E402
@@ -33,9 +34,53 @@ EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips",
 MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 
+RETRY_ROUNDS = 3              # extra attempts to find a known device that did not answer
+RETRY_DELAY_S = 60
+STALE_AFTER_H = 36            # flag a device with no sample for this long
+
+
+def _find_all(known):
+    """Discover controllers; keep the freshest record per device_id.
+    `known` is {device_id: last_ip}. A device missed by the scan is retried by
+    probing its last-known address, then by rescanning (it may have a new
+    DHCP lease), so a single dropped probe never leaves a gap in the log."""
+    found = {}
+
+    def scan_once(passes):
+        try:
+            subnets = fleet_update.local_subnets()
+        except Exception as e:  # network not ready, no interface, etc.
+            print("could not determine subnets: %s" % e)
+            return
+        for c in fleet_update.discover(subnets, passes=passes):
+            if c.get("device_id"):
+                found[c["device_id"]] = c
+
+    scan_once(2)
+    for rnd in range(RETRY_ROUNDS):
+        missing = [d for d in known if d not in found]
+        if not missing:
+            break
+        for d in missing:
+            c = fleet_update.probe_status(known[d])
+            if c and c.get("device_id") == d:
+                found[d] = c
+        missing = [d for d in known if d not in found]
+        if not missing:
+            break
+        print("missing %s; retry %d/%d in %ds" % (", ".join(missing), rnd + 1, RETRY_ROUNDS, RETRY_DELAY_S))
+        time.sleep(RETRY_DELAY_S)
+        scan_once(1)
+    for d in known:
+        if d not in found:
+            print("WARNING: %s (last seen at %s) not found this run" % (d, known[d]))
+    return list(found.values())
+
+
 def collect():
     now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
-    controllers = fleet_update.discover(fleet_update.local_subnets(), passes=2)
+    known = {dev: recs[-1]["ip"] for dev, recs in load().items() if recs and recs[-1].get("ip")}
+    controllers = _find_all(known)
     os.makedirs(LOG_DIR, exist_ok=True)
     for c in controllers:
         dev = c.get("device_id")
@@ -126,6 +171,11 @@ def analyze():
             lines.append("    up=%.2fd floor=%dB largest=%dB dur=%dms new_low=%s active=%s" % (
                 d["up_s"] / 86400, d["floor"], d["largest"], d["dur_ms"], d["new_low"],
                 "+".join(d["active"]) or "none"))
+        age_h = (datetime.datetime.now().astimezone() - datetime.datetime.fromisoformat(last["ts"])
+                 ).total_seconds() / 3600
+        if age_h > STALE_AFTER_H:
+            flags.append("%s: no sample for %.0f h (last at %s) - device unreachable?"
+                         % (room, age_h, last.get("ip")))
         if (last.get("alloc_fail_count") or 0) > 0:
             flags.append("%s: %d failed heap allocation(s), last %s" % (
                 room, last["alloc_fail_count"], last.get("alloc_fail_last")))

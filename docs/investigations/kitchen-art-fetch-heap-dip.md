@@ -49,6 +49,24 @@ physical (a node closer to the Kitchen, or a better antenna position) rather tha
 firmware. The roam monitor was exercised on hardware with relaxed thresholds
 (re-join worked, cooldown held).
 
+## Update 2026-11-14
+
+Nightly samples after node selection (`42517af`), plus a Bathroom test build with the roam monitor disabled
+(`2de229d-dirty-noroam`, flashed 2026-11-09, 5 days).
+
+- **Idle free heap is flat, not leaking.** An apparent drop (about -4 KB/day on both boards) on 11-12 was
+  daytime samples taken during playback; overnight samples recover (Bathroom 75.9 -> 75.1 KB, Kitchen
+  66.0 -> 68.9 KB).
+- **Kitchen is stable after its reboot.** 3.9 days: one dip at boot (floor 3,880 B), no allocation failures,
+  -51 to -63 dBm on `E4:19:7F:64:AC:86`. The 288 B floor and 14 failures were from the earlier boot.
+- **The roam monitor is not the cause.** Bathroom with the monitor off still dipped (860 B, then 648 B), and sat
+  on a weak node (-61 to -71 dBm) it could not leave. The normal build was restored on 2026-11-14 and Bathroom
+  rejoined the strong node at -45 dBm.
+- **Lyrics path also makes small internal allocations.** Bathroom logged one failed 235 B internal
+  allocation from the Lyrics task and a 648 B floor during `lyrics_tls` at 3.9 days. This is the same class as
+  the Kitchen art failures (small allocations outside mbedTLS, probably network buffers).
+- Mesh channel moved from 1 to 11 on both boards around 11-13; nodes unchanged.
+
 ## Hypotheses
 
 1. **WiFi/lwIP receive buffers.** A large download over a weak link fills TCP
@@ -61,7 +79,7 @@ firmware. The roam monitor was exercised on hardware with relaxed thresholds
 - [ ] Log internal free RAM at 200 ms through a full art fetch (serial trace or a
       temporary ring on `/status`) to see the shape of the dip.
 - [x] Compare `wifi_rssi` between the two controllers (Kitchen -80, Bathroom -62 dBm)
-- [ ] Watch `wifi_rssi` over several nights (logged nightly) and correlate with dips
+- [x] Watch `wifi_rssi` over several nights (logged nightly) and correlate with dips (done 2026-11-14: dips occur at good and weak signal; not signal-driven)
 - [ ] Improve Kitchen's link physically (closer node, antenna position/orientation, away from the microwave/metal) and see if the dips stop during the fetch;
       compare with the Bathroom.
 - [ ] Test a smaller lwIP TCP receive window / reading in smaller chunks and
@@ -69,6 +87,9 @@ firmware. The roam monitor was exercised on hardware with relaxed thresholds
 - [ ] Check whether delaying the first art fetch after boot (or staggering it
       from discovery/GENA setup) removes the early dips.
 - [ ] If a code change is warranted, propose it through OpenSpec.
+
+- [x] Rule out the roam monitor as a cause (2026-11-14)
+- [ ] Identify what the Lyrics and Art tasks allocate from internal RAM during TLS (per-task allocation breakdown)
 
 ## Tools
 

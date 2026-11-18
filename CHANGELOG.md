@@ -39,6 +39,7 @@ archived OpenSpec change that carries the rationale. Design discussion belongs i
 - `/status` now reports the controller's WiFi signal strength (`wifi_rssi`, dBm), so a
   weak link can be spotted remotely
   ([change](openspec/changes/archive/2026-11-05-add-status-wifi-rssi/)).
+- `/status` now reports `fetch_mem`: how much internal RAM each album-art and lyrics fetch costs at connect, first read and finish, to pin down memory dips ([add-tls-phase-memory-breakdown](openspec/changes/add-tls-phase-memory-breakdown/)).
 - The controller now joins the strongest node of a mesh WiFi network instead of the
   first one that answers, and when its signal stays weak while idle it moves to a
   clearly stronger node; `/status` reports the node (`wifi_bssid`, `wifi_channel`,

@@ -180,6 +180,7 @@ static size_t fetch_jpeg(const String& url,
     // Pick the transport. WiFiClientSecure carries the TLS stack (heavier); only
     // engaged for https absolute URLs. setInsecure() skips cert validation, which
     // is acceptable for public album-art images and avoids shipping a CA bundle.
+    diag::FetchProbe probe(use_tls ? diag::kFetchArtTls : diag::kFetchArtPlain);
     WiFiClient       plain;
     WiFiClientSecure secure;
     Client*          client;
@@ -196,6 +197,7 @@ static size_t fetch_jpeg(const String& url,
         s_last_fetch_ms = millis() - t_start;
         return 0;
     }
+    probe.at(diag::kPhaseConnect);
     // Host header: omit the port for the scheme defaults so CDNs are happy.
     String host_hdr = host;
     if (!((use_tls && port == 443) || (!use_tls && port == 80)))
@@ -216,6 +218,7 @@ static size_t fetch_jpeg(const String& url,
     // on anything that isn't 2xx so we never try to decode an error page.
     {
         String status = read_line(*client, deadline);
+        probe.at(diag::kPhaseFirstRead);
         int sp = status.indexOf(' ');
         if (sp >= 0) s_last_http_status = (int)strtol(status.c_str() + sp + 1, nullptr, 10);
         if (s_last_http_status < 200 || s_last_http_status >= 300) {
@@ -303,6 +306,7 @@ static size_t fetch_jpeg(const String& url,
             delay(1);
         }
     }
+    probe.at(diag::kPhaseDone);
     client->stop();
     s_last_fetch_ms = millis() - t_start;
     return fetched;

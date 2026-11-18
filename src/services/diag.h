@@ -32,6 +32,25 @@ struct Scope {
     Scope& operator=(const Scope&) = delete;
 };
 
+// Per-fetch internal-RAM cost. A FetchProbe lives for one network fetch; each
+// `at()` records how far internal free heap has fallen since the probe was
+// created, keeping the largest drop seen per kind and phase since boot. The
+// reading is device-wide, so it is an upper bound on the fetch's own cost.
+enum FetchKind  : uint8_t { kFetchArtTls = 0, kFetchArtPlain, kFetchLyrics, kFetchKinds };
+enum FetchPhase : uint8_t { kPhaseConnect = 0, kPhaseFirstRead, kPhaseDone, kFetchPhases };
+
+class FetchProbe {
+public:
+    explicit FetchProbe(FetchKind kind);
+    ~FetchProbe();
+    void at(FetchPhase phase);
+    FetchProbe(const FetchProbe&) = delete;
+    FetchProbe& operator=(const FetchProbe&) = delete;
+private:
+    FetchKind kind_;
+    uint32_t  base_;
+};
+
 // JSON object members (no leading/trailing comma, no braces) for /status.
 String json_fragment();
 

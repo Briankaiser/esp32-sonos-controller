@@ -30,7 +30,7 @@ LOW_INTERNAL_FREE = 40 * 1024
 LOW_LARGEST_BLOCK = 20 * 1024
 EXTRA_FIELDS = ["dip_count", "alloc_fail_count", "alloc_fail_last", "heap_dips",
                 "tls_psram_allocs", "tls_fallback_allocs", "wifi_rssi",
-                "wifi_bssid", "wifi_channel", "wifi_reselects"]
+                "wifi_bssid", "wifi_channel", "wifi_reselects", "fetch_mem"]
 MIN_FREE_FLOOR = 4 * 1024             # low-water mark below this = near-OOM at some point
 
 
@@ -164,6 +164,11 @@ def analyze():
         if last.get("wifi_bssid"):
             lines.append("  wifi node: %s ch%s  reselects=%s" % (
                 last["wifi_bssid"], last.get("wifi_channel"), last.get("wifi_reselects")))
+        fm = last.get("fetch_mem") or {}
+        for kind, v in sorted(fm.items()):
+            if v and v.get("count"):
+                lines.append("  fetch_mem %-9s n=%-5s max internal drop: connect=%s first_read=%s done=%s" % (
+                    kind, v["count"], v.get("connect"), v.get("first_read"), v.get("done")))
         dips = last.get("heap_dips") or []
         lines.append("  dips since boot: %s   alloc failures: %s" % (
             last.get("dip_count", "n/a"), last.get("alloc_fail_count", "n/a")))

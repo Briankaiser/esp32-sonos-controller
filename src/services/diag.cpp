@@ -43,6 +43,18 @@ volatile uint32_t     s_fail_caps = 0;
 const char* volatile  s_fail_fn   = nullptr;
 char                  s_fail_task[16] = {0};
 
+int32_t  s_fetch_drop[diag::kFetchKinds][diag::kFetchPhases];  // -1 = never reached
+uint32_t s_fetch_count[diag::kFetchKinds];
+bool     s_fetch_init = false;
+const char* const kFetchNames[diag::kFetchKinds]  = {"art_tls", "art_plain", "lyrics"};
+const char* const kPhaseNames[diag::kFetchPhases] = {"connect", "first_read", "done"};
+
+void fetch_init_locked() {
+    if (s_fetch_init) return;
+    for (auto& row : s_fetch_drop) for (auto& v : row) v = -1;
+    s_fetch_init = true;
+}
+
 uint32_t active_mask() {
     uint32_t m = 0;
     for (int i = 0; i < kBits; i++)
@@ -135,6 +147,25 @@ void diag::unmark(uint32_t bits) {
         if (bits & (1u << i)) s_count[i].fetch_sub(1, std::memory_order_relaxed);
 }
 
+diag::FetchProbe::FetchProbe(FetchKind kind)
+    : kind_(kind), base_((uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) {}
+
+diag::FetchProbe::~FetchProbe() {
+    portENTER_CRITICAL(&s_mux);
+    fetch_init_locked();
+    s_fetch_count[kind_]++;
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void diag::FetchProbe::at(FetchPhase phase) {
+    uint32_t now  = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    int32_t  drop = now >= base_ ? 0 : (int32_t)(base_ - now);
+    portENTER_CRITICAL(&s_mux);
+    fetch_init_locked();
+    if (drop > s_fetch_drop[kind_][phase]) s_fetch_drop[kind_][phase] = drop;
+    portEXIT_CRITICAL(&s_mux);
+}
+
 String diag::json_fragment() {
     Dip snap[kRing];
     size_t len, head;
@@ -152,6 +183,23 @@ String diag::json_fragment() {
            ", \"caps\": " + String((unsigned)s_fail_caps) +
            ", \"fn\": \"" + String(s_fail_fn ? s_fail_fn : "") +
            "\", \"task\": \"" + String(s_fail_task) + "\"},\n";
+    int32_t  drop[kFetchKinds][kFetchPhases];
+    uint32_t cnt[kFetchKinds];
+    portENTER_CRITICAL(&s_mux);
+    fetch_init_locked();
+    memcpy(drop, s_fetch_drop, sizeof(drop));
+    memcpy(cnt, s_fetch_count, sizeof(cnt));
+    portEXIT_CRITICAL(&s_mux);
+    out += "  \"fetch_mem\": {";
+    for (int k = 0; k < kFetchKinds; k++) {
+        out += String(k ? ", " : "") + "\"" + kFetchNames[k] + "\": {\"count\": " + String((unsigned)cnt[k]);
+        for (int ph = 0; ph < kFetchPhases; ph++) {
+            out += String(", \"") + kPhaseNames[ph] + "\": ";
+            out += drop[k][ph] < 0 ? String("null") : String((unsigned)drop[k][ph]);
+        }
+        out += "}";
+    }
+    out += "},\n";
     out += "  \"heap_dips\": [";
     for (size_t i = 0; i < len; i++) {
         const Dip& d = snap[(head + kRing - len + i) % kRing];

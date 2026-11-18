@@ -94,6 +94,7 @@ static size_t fetch_body(const String& path, int* http_status) {
     tls_gate::Guard tls_guard(true);
     if (!tls_guard.ok()) return 0;   // art TLS in flight: treat as transient failure
     diag::Scope diag_tls(diag::kLyricsTls);
+    diag::FetchProbe probe(diag::kFetchLyrics);
     WiFiClientSecure client;
     client.setInsecure();          // public lyrics text; no CA bundle shipped (as with art)
     client.setTimeout(kFetchTimeoutMs);   // Stream read timeout, in ms (matches art.cpp)
@@ -104,6 +105,7 @@ static size_t fetch_body(const String& path, int* http_status) {
         return 0;
     }
 
+    probe.at(diag::kPhaseConnect);
     client.printf(
         "GET %s HTTP/1.1\r\n"
         "Host: %s\r\n"
@@ -115,6 +117,7 @@ static size_t fetch_body(const String& path, int* http_status) {
     // Status line
     {
         String status = read_line(client, deadline);
+        probe.at(diag::kPhaseFirstRead);
         int sp = status.indexOf(' ');
         if (sp >= 0) *http_status = (int)strtol(status.c_str() + sp + 1, nullptr, 10);
         if (*http_status < 200 || *http_status >= 300) {
@@ -186,6 +189,7 @@ static size_t fetch_body(const String& path, int* http_status) {
         }
     }
 done:
+    probe.at(diag::kPhaseDone);
     client.stop();
     s_buf[fetched] = '\0';
     return fetched;

@@ -209,7 +209,7 @@ def notify(title, msg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--analyze-only", action="store_true")
-    ap.add_argument("--until", default="2026-11-15", help="stop collecting after this date")
+    ap.add_argument("--until", default="2026-12-15", help="stop collecting after this date")
     args = ap.parse_args()
 
     if datetime.date.today() > datetime.date.fromisoformat(args.until):
